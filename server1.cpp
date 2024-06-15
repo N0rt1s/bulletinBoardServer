@@ -10,6 +10,8 @@
 #include "bulletinBoard.cpp"
 #include <regex>
 #include <csignal>
+#include <unordered_map>
+#include <fstream>
 
 #define DESIRED_ADDRESS "127.0.0.1"
 #define DESIRED_PORT 3500
@@ -43,6 +45,17 @@ vector<string> bufferSplit(const char *buffer)
                 bufferArray.push_back(tempbuffer);
                 tempbuffer.clear();
             }
+        }
+        else if (buffer[i] == '\"')
+        {
+            tempbuffer.clear();
+            i++;
+            while (buffer[i] != '\"')
+            {
+                tempbuffer.push_back(buffer[i]);
+            }
+            bufferArray.push_back(tempbuffer);
+            tempbuffer.clear();
         }
         else
         {
@@ -83,7 +96,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         }
         else
         {
-            message = "ERROR USER command takes 1 positional arguments.\n";
+            message = "ERROR USER command takes only 1 positional arguments.\n";
             send(client_sock, message.c_str(), message.length(), 0);
         }
     }
@@ -92,6 +105,17 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
     }
     else if (command == "WRITE")
     {
+        if (arg1 != "" && buffer.size() == 2)
+        {
+            int messageId = user->WriteMessage(arg1, "bbfile.txt");
+            message = "WROTE " + messageId + '\n';
+            send(client_sock, message.c_str(), message.length(), 0);
+        }
+        else
+        {
+            message = "ERROR WRITE command takes only 1 positional arguments.\n";
+            send(client_sock, message.c_str(), message.length(), 0);
+        }
     }
     else if (command == "REPLACE")
     {
@@ -120,7 +144,7 @@ void *handle_client(void *args)
     send(client_sock, welcomMessage, strlen(welcomMessage), 0);
     const size_t bufferSize = 1024 * 1024;
     char *buffer = new char[bufferSize];
-    bulletinBoard *user = new bulletinBoard();
+    bulletinBoard *user = new bulletinBoard(client_sock);
     while (true)
     {
         // char buffer[1024];
@@ -165,12 +189,48 @@ void signalHandler(int signal)
     exit(signal);
 }
 
+unordered_map<string, string> readConfig(const string &filename)
+{
+    ifstream file(filename);
+    unordered_map<string, string> config;
+
+    if (file.is_open())
+    {
+        string line;
+        while (getline(file, line))
+        {
+            // Skip empty lines and comments (lines starting with #)
+            if (!line.empty() && line[0] != '#')
+            {
+                size_t delimiterPos = line.find('=');
+                if (delimiterPos != string::npos)
+                {
+                    string key = line.substr(0, delimiterPos);
+                    string value = line.substr(delimiterPos + 1);
+                    // Trim leading and trailing whitespace from key and value
+                    key.erase(0, key.find_first_not_of(" \t\r\n"));
+                    key.erase(key.find_last_not_of(" \t\r\n") + 1);
+                    value.erase(0, value.find_first_not_of(" \t\r\n"));
+                    value.erase(value.find_last_not_of(" \t\r\n") + 1);
+                    config[key] = value;
+                }
+            }
+        }
+        file.close();
+    }
+    else
+    {
+        cerr << "Unable to open file: " << filename << endl;
+    }
+
+    return config;
+}
+
 int main()
 {
     signal(SIGINT, signalHandler);
-
+    unordered_map<string, string> config = readConfig("bbserv.conf");
     int sock = socket(AF_INET, SOCK_STREAM, 0);
-
     if (sock == -1)
     {
         cerr << "Unable to connect to socket" << endl;
