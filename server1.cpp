@@ -16,8 +16,18 @@
 #define BUFSIZE 512
 
 using namespace std;
+regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 
-regex username_pattern("[a-zA-Z0-9]+");
+std::string remove_char(const std::string &s, char ch)
+{
+    std::string result = s;
+    size_t pos = 0;
+    while ((pos = result.find(ch, pos)) != std::string::npos)
+    {
+        result.erase(pos, 1);
+    }
+    return result;
+}
 
 vector<string> bufferSplit(const char *buffer)
 {
@@ -42,45 +52,39 @@ vector<string> bufferSplit(const char *buffer)
     }
     if (!tempbuffer.empty())
     {
-        bufferArray.push_back(tempbuffer);
+        bufferArray.push_back(remove_char(remove_char(tempbuffer, '\r'), '\n'));
     }
     return bufferArray;
 }
 
 int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
 {
-    cout << "handling command" << endl;
-    cout << "buffer.size()=>" << buffer.size() << endl;
+    // cout << "buffer.size()=>" << buffer.size() << endl;
     string command = buffer[0];
-    cout << "command=>" << command << endl;
+    // cout << "command=>" << command << endl;
     string arg1 = buffer.size() > 1 ? buffer[1] : "";
     string arg2 = buffer.size() > 2 ? buffer[2] : "";
-    char *message;
+    string message;
     if (command == "USER")
     {
-        if (arg1 != "" && buffer.size() == 1)
+        if (arg1 != "" && buffer.size() == 2)
         {
-            if (regex_match(arg1, username_pattern))
+            if (regex_match(arg1, pattern))
             {
-                cout << "regix matched" << arg1 << endl;
                 user->setName(arg1);
-                // message = "HELLO ";
-                // strcat(message, arg1.c_str());
-                // strcat(message, " Welcome to bulletin board server.\n");
-                // send(client_sock, message, strlen(message), 0);
+                message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
             }
             else
             {
-                message = "ERROR USER name does not contains any special characters.\n";
-                cout << strlen(message) - 1 << endl;
-                send(client_sock, message, strlen(message), 0);
+                message = "ERROR USER name should not contain any special character.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
             }
         }
         else
         {
             message = "ERROR USER command takes 1 positional arguments.\n";
-            cout << strlen(message) - 1 << endl;
-            send(client_sock, message, strlen(message), 0);
+            send(client_sock, message.c_str(), message.length(), 0);
         }
     }
     else if (command == "READ")
@@ -92,14 +96,16 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
     else if (command == "REPLACE")
     {
     }
-    else if (command == "QUIT")
+    else if (command == "QUIT" || command == "\377\364\377\375\006")
     {
+        // message = "Connection Disconnected Successfully.\n";
+        // send(client_sock, message.c_str(), message.length(), 0);
+        close(client_sock);
     }
     else
     {
         message = "ERROR entered command is incorrect.\n";
-        cout << strlen(message) - 1 << endl;
-        send(client_sock, message, strlen(message), 0);
+        send(client_sock, message.c_str(), message.length(), 0);
     }
     return 1;
 }
@@ -130,10 +136,9 @@ void *handle_client(void *args)
             }
             else
             {
-                char *message;
+                string message;
                 message = "ERROR entered command is incorrect.\n";
-                cout << strlen(message) - 1 << endl;
-                send(client_sock, message, strlen(message), 0);
+                send(client_sock, message.c_str(), message.length(), 0);
             }
             // cout << buffer << endl;
         }
