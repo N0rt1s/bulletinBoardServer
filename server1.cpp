@@ -12,6 +12,7 @@
 #include <csignal>
 #include <unordered_map>
 #include <fstream>
+#include <utility>
 
 #define DESIRED_ADDRESS "127.0.0.1"
 #define DESIRED_PORT 3500
@@ -19,16 +20,44 @@
 
 using namespace std;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
+unordered_map<int, pair<string, string>> indexes;
 
-std::string remove_char(const std::string &s, char ch)
+string remove_char(const string &s, char ch)
 {
-    std::string result = s;
+    string result = s;
     size_t pos = 0;
-    while ((pos = result.find(ch, pos)) != std::string::npos)
+    while ((pos = result.find(ch, pos)) != string::npos)
     {
         result.erase(pos, 1);
     }
     return result;
+}
+
+unordered_map<int, pair<string, string>> createIndexes(string filename)
+{
+    std::ifstream file(filename);
+    unordered_map<int, pair<string, string>> indexMap;
+
+    if (file.is_open())
+    {
+        std::string line;
+        while (std::getline(file, line))
+        {
+            size_t commaPos = line.find(',');
+            int id = stoi(line.substr(0, commaPos));
+            string lineWithoutId = line.substr(commaPos + 1);
+            commaPos = lineWithoutId.find(',');
+            string name = lineWithoutId.substr(0, commaPos);
+            string message = remove_char(lineWithoutId.substr(commaPos + 1), '\"');
+            indexMap[id] = make_pair(name, message);
+        }
+        file.close();
+    }
+    else
+    {
+        std::cerr << "Unable to open file" << std::endl;
+    }
+    return indexMap;
 }
 
 vector<string> bufferSplit(const char *buffer)
@@ -53,6 +82,7 @@ vector<string> bufferSplit(const char *buffer)
             while (buffer[i] != '\"')
             {
                 tempbuffer.push_back(buffer[i]);
+                i++;
             }
             bufferArray.push_back(tempbuffer);
             tempbuffer.clear();
@@ -65,7 +95,9 @@ vector<string> bufferSplit(const char *buffer)
     }
     if (!tempbuffer.empty())
     {
-        bufferArray.push_back(remove_char(remove_char(tempbuffer, '\r'), '\n'));
+        string lastbuffer = remove_char(remove_char(tempbuffer, '\r'), '\n');
+        if (lastbuffer.length() > 0)
+            bufferArray.push_back(lastbuffer);
     }
     return bufferArray;
 }
@@ -77,7 +109,6 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
     // cout << "command=>" << command << endl;
     string arg1 = buffer.size() > 1 ? buffer[1] : "";
     string arg2 = buffer.size() > 2 ? buffer[2] : "";
-    string message;
     if (command == "USER")
     {
         if (arg1 != "" && buffer.size() == 2)
@@ -85,50 +116,101 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             if (regex_match(arg1, pattern))
             {
                 user->setName(arg1);
-                message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
+                string message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
             else
             {
-                message = "ERROR USER name should not contain any special character.\n";
+                string message = "ERROR USER name should not contain any special character.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
         }
         else
         {
-            message = "ERROR USER command takes only 1 positional arguments.\n";
+            string message = "ERROR USER command takes only 1 positional arguments.\n";
             send(client_sock, message.c_str(), message.length(), 0);
         }
     }
     else if (command == "READ")
     {
+        if (arg1 != "" && buffer.size() == 2)
+        {
+            int messageId = stoi(arg1);
+            if (indexes.find(messageId) != indexes.end())
+            {
+                pair<string, string> data = indexes[messageId];
+                string message = "MESSAGE " + to_string(messageId) + " " + data.first + " || " + data.second + "\n";
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+            else
+            {
+                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+        }
+        else
+        {
+            string message = "ERROR READ command takes only 1 positional arguments.\n";
+            send(client_sock, message.c_str(), message.length(), 0);
+        }
     }
     else if (command == "WRITE")
     {
         if (arg1 != "" && buffer.size() == 2)
         {
-            int messageId = user->WriteMessage(arg1, "bbfile.txt");
-            message = "WROTE " + messageId + '\n';
+            int messageId = user->writeMessage(arg1, "bbfile.txt");
+            string message = "WROTE " + to_string(messageId) + '\n';
+            indexes[messageId] = make_pair(user->getName(), arg1);
             send(client_sock, message.c_str(), message.length(), 0);
         }
         else
         {
-            message = "ERROR WRITE command takes only 1 positional arguments.\n";
+            string message = "ERROR WRITE command takes only 1 positional arguments.\n";
             send(client_sock, message.c_str(), message.length(), 0);
         }
     }
     else if (command == "REPLACE")
     {
+        if (buffer.size() == 3)
+        {
+            int messageId = stoi(arg1);
+            string new_message = arg2;
+            if (indexes.find(messageId) != indexes.end())
+            {
+                bool replaced = user->replaceMessage(messageId, new_message, "bbfile.txt");
+                if (replaced)
+                {
+
+                    indexes[messageId] = make_pair(user->getName(), arg2);
+                    string message = "WROTE " + to_string(messageId) + '\n';
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
+                else
+                {
+                    string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
+            }
+            else
+            {
+                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+        }
+        else
+        {
+            string message = "ERROR REPLACE command takes only 2 positional arguments.\n";
+            send(client_sock, message.c_str(), message.length(), 0);
+        }
     }
     else if (command == "QUIT" || command == "\377\364\377\375\006")
     {
-        // message = "Connection Disconnected Successfully.\n";
-        // send(client_sock, message.c_str(), message.length(), 0);
+        // delete user;
         close(client_sock);
     }
     else
     {
-        message = "ERROR entered command is incorrect.\n";
+        string message = "ERROR entered command is incorrect.\n";
         send(client_sock, message.c_str(), message.length(), 0);
     }
     return 1;
@@ -179,7 +261,7 @@ void *handle_client(void *args)
             break;
         }
     }
-
+    delete user;
     return nullptr;
 }
 
@@ -229,7 +311,8 @@ unordered_map<string, string> readConfig(const string &filename)
 int main()
 {
     signal(SIGINT, signalHandler);
-    unordered_map<string, string> config = readConfig("bbserv.conf");
+    // unordered_map<string, string> config = readConfig("bbserv.conf");
+    indexes = createIndexes("bbfile.txt");
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == -1)
     {

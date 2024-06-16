@@ -16,7 +16,10 @@ public:
     bulletinBoard();
     bulletinBoard(int client_socket);
     void setName(string name);
-    int WriteMessage(string message, string filename);
+    string getName();
+    int writeMessage(string message, string filename);
+    string readMessage(int messageId, string filename);
+    bool replaceMessage(int messageId, string message, string filename);
     ~bulletinBoard();
 };
 
@@ -30,8 +33,12 @@ void bulletinBoard::setName(string username)
 {
     this->name = username;
 }
+string bulletinBoard::getName()
+{
+    return this->name;
+}
 
-int bulletinBoard::WriteMessage(string message, string filename)
+int bulletinBoard::writeMessage(string message, string filename)
 {
     ofstream outfile;
 
@@ -39,26 +46,58 @@ int bulletinBoard::WriteMessage(string message, string filename)
     if (stat(filename.c_str(), &buffer) != 0)
     {
         // File doesn't exist, create it
-        std::ofstream createFile(filename);
+        ofstream createFile(filename);
         createFile.close();
     }
     int id = countLines(filename) + 1;
 
     outfile.open(filename, ios_base::app); // append instead of overwrite
-    outfile << "\"" << message << "\"," << id << "," << this->name << "\n";
+    outfile << id << "," << this->name << ",\"" << message << "\"" << "\n";
     outfile.close();
     return id;
 }
 
-int bulletinBoard::countLines(const std::string &filename)
+bool bulletinBoard::replaceMessage(int messageId, string message, string filename)
 {
-    std::ifstream file(filename);
+    try
+    {
+        std::ifstream file(filename);
+        std::string line;
+        std::ofstream temp("temp.txt");
+        int lineNumber = 1;
+
+        while (std::getline(file, line))
+        {
+            if (lineNumber == messageId)
+            {
+                line = to_string(messageId) + "," + this->name + ",\"" + message + "\"" + "\n";
+            }
+            temp << line << std::endl;
+            lineNumber++;
+        }
+
+        temp.close();
+        file.close();
+
+        std::remove(filename.c_str());
+        std::rename("temp.txt", filename.c_str());
+        return true;
+    }
+    catch (const std::exception &e)
+    {
+        return false;
+    }
+}
+
+int bulletinBoard::countLines(const string &filename)
+{
+    ifstream file(filename);
     int lineCount = 0;
 
     if (file.is_open())
     {
-        std::string line;
-        while (std::getline(file, line))
+        string line;
+        while (getline(file, line))
         {
             lineCount++;
         }
@@ -66,7 +105,7 @@ int bulletinBoard::countLines(const std::string &filename)
     }
     else
     {
-        std::cerr << "Unable to open file" << std::endl;
+        cerr << "Unable to open file" << endl;
     }
 
     return lineCount;
