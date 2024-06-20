@@ -319,7 +319,7 @@ int main()
     unordered_map<string, string> config = readConfig("bbserv.conf");
     if (config.find("BBFILE") == config.end())
     {
-        cerr << "Could not find the BBFILE in the configuration. Add the BBFILE=<your BB file> in config file" << endl;
+        cerr << "Could not find the BBFILE in the configuration. Add the BBFILE=<your BB file> in bbserv.conf file" << endl;
         return 1;
     }
     indexes = createIndexes(config["BBFILE"]);
