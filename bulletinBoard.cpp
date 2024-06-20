@@ -1,38 +1,19 @@
-#include <cstring>
-#include <iostream>
+#include "bulletinBoard.h"
 #include <fstream>
+#include <iostream>
 #include <sys/stat.h>
 
 using namespace std;
 
-class bulletinBoard
-{
-private:
-    string name;
-    int client_sock;
-    static int countLines(const std::string &filename);
+bulletinBoard::bulletinBoard() : name("Anonymous") {}
 
-public:
-    bulletinBoard();
-    bulletinBoard(int client_socket);
-    void setName(string name);
-    string getName();
-    int writeMessage(string message, string filename);
-    string readMessage(int messageId, string filename);
-    bool replaceMessage(int messageId, string message, string filename);
-    ~bulletinBoard();
-};
-
-bulletinBoard::bulletinBoard(int client_socket)
-{
-    this->name = "Anonymous";
-    this->client_sock = client_socket;
-}
+// bulletinBoard::bulletinBoard(int client_socket) : name("Anonymous"), client_sock(client_socket) {}
 
 void bulletinBoard::setName(string username)
 {
     this->name = username;
 }
+
 string bulletinBoard::getName()
 {
     return this->name;
@@ -61,29 +42,29 @@ bool bulletinBoard::replaceMessage(int messageId, string message, string filenam
 {
     try
     {
-        std::ifstream file(filename);
-        std::string line;
-        std::ofstream temp("temp.txt");
+        ifstream file(filename);
+        string line;
+        ofstream temp("temp.txt");
         int lineNumber = 1;
 
-        while (std::getline(file, line))
+        while (getline(file, line))
         {
             if (lineNumber == messageId)
             {
                 line = to_string(messageId) + "," + this->name + ",\"" + message + "\"" + "\n";
             }
-            temp << line << std::endl;
+            temp << line << endl;
             lineNumber++;
         }
 
         temp.close();
         file.close();
 
-        std::remove(filename.c_str());
-        std::rename("temp.txt", filename.c_str());
+        remove(filename.c_str());
+        rename("temp.txt", filename.c_str());
         return true;
     }
-    catch (const std::exception &e)
+    catch (const exception &e)
     {
         return false;
     }
@@ -111,6 +92,4 @@ int bulletinBoard::countLines(const string &filename)
     return lineCount;
 }
 
-bulletinBoard::~bulletinBoard()
-{
-}
+bulletinBoard::~bulletinBoard() {}

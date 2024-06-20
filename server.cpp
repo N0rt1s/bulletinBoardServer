@@ -7,7 +7,7 @@
 #include <iostream>
 #include <cstring>
 #include <vector>
-#include "bulletinBoard.cpp"
+#include "bulletinBoard.h"
 #include <regex>
 #include <csignal>
 #include <unordered_map>
@@ -15,12 +15,13 @@
 #include <utility>
 
 #define DESIRED_ADDRESS "127.0.0.1"
-#define DESIRED_PORT 3500
+#define BBPORT 9000
 #define BUFSIZE 512
 
 using namespace std;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<string, string>> indexes;
+pthread_mutex_t fileMutex = PTHREAD_MUTEX_INITIALIZER;
 
 string remove_char(const string &s, char ch)
 {
@@ -35,13 +36,13 @@ string remove_char(const string &s, char ch)
 
 unordered_map<int, pair<string, string>> createIndexes(string filename)
 {
-    std::ifstream file(filename);
+    ifstream file(filename);
     unordered_map<int, pair<string, string>> indexMap;
 
     if (file.is_open())
     {
-        std::string line;
-        while (std::getline(file, line))
+        string line;
+        while (getline(file, line))
         {
             size_t commaPos = line.find(',');
             int id = stoi(line.substr(0, commaPos));
@@ -158,10 +159,12 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
     {
         if (arg1 != "" && buffer.size() == 2)
         {
+            pthread_mutex_lock(&fileMutex);
             int messageId = user->writeMessage(arg1, "bbfile.txt");
             string message = "WROTE " + to_string(messageId) + '\n';
             indexes[messageId] = make_pair(user->getName(), arg1);
             send(client_sock, message.c_str(), message.length(), 0);
+            pthread_mutex_unlock(&fileMutex);
         }
         else
         {
@@ -177,6 +180,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             string new_message = arg2;
             if (indexes.find(messageId) != indexes.end())
             {
+                pthread_mutex_lock(&fileMutex);
                 bool replaced = user->replaceMessage(messageId, new_message, "bbfile.txt");
                 if (replaced)
                 {
@@ -190,6 +194,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                     string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
                     send(client_sock, message.c_str(), message.length(), 0);
                 }
+                pthread_mutex_unlock(&fileMutex);
             }
             else
             {
@@ -226,7 +231,7 @@ void *handle_client(void *args)
     send(client_sock, welcomMessage, strlen(welcomMessage), 0);
     const size_t bufferSize = 1024 * 1024;
     char *buffer = new char[bufferSize];
-    bulletinBoard *user = new bulletinBoard(client_sock);
+    bulletinBoard *user = new bulletinBoard();
     while (true)
     {
         // char buffer[1024];
@@ -261,6 +266,7 @@ void *handle_client(void *args)
             break;
         }
     }
+    delete[] buffer;
     delete user;
     return nullptr;
 }
@@ -275,7 +281,6 @@ unordered_map<string, string> readConfig(const string &filename)
 {
     ifstream file(filename);
     unordered_map<string, string> config;
-
     if (file.is_open())
     {
         string line;
@@ -302,7 +307,7 @@ unordered_map<string, string> readConfig(const string &filename)
     }
     else
     {
-        cerr << "Unable to open file: " << filename << endl;
+        cerr << "Unable to open config file or file could not be found: " << filename << endl;
     }
 
     return config;
@@ -311,23 +316,29 @@ unordered_map<string, string> readConfig(const string &filename)
 int main()
 {
     signal(SIGINT, signalHandler);
-    // unordered_map<string, string> config = readConfig("bbserv.conf");
-    indexes = createIndexes("bbfile.txt");
+    unordered_map<string, string> config = readConfig("bbserv.conf");
+    if (config.find("BBFILE") == config.end())
+    {
+        cerr << "Could not find the BBFILE in the configuration. Add the BBFILE=<your BB file> in config file" << endl;
+        return 1;
+    }
+    indexes = createIndexes(config["BBFILE"]);
+
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == -1)
     {
-        cerr << "Unable to connect to socket" << endl;
+        cerr << "Unable to create socket" << endl;
         return 1;
     }
-
-    struct sockaddr_in addr = {0};
+    uint16_t port = config.find("BBPORT") == config.end() ? BBPORT : stoi(config["BBPORT"]);
+    sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(DESIRED_PORT);
+    addr.sin_port = htons(port);
     addr.sin_addr.s_addr = inet_addr(DESIRED_ADDRESS);
-    // MAIN PART
+
     if (bind(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
     {
-        cerr << "Error binding sockets" << endl;
+        cerr << "Error binding socket" << endl;
         close(sock);
         return 1;
     }
@@ -339,32 +350,35 @@ int main()
         return 1;
     }
 
-    cout << "server is listening on Port:" << DESIRED_PORT << endl;
+    cout << "Server listening on " << DESIRED_ADDRESS << ":" << port << endl;
 
     while (true)
     {
-        sockaddr_in client_addr;
-        socklen_t client_addr_len = sizeof(client_addr);
-        int client_sock = accept(sock, (sockaddr *)&client_addr, &client_addr_len);
+        sockaddr_in client_addr = {0};
+        socklen_t client_addr_size = sizeof(client_addr);
+        int client_sock = accept(sock, (sockaddr *)&client_addr, &client_addr_size);
+
         if (client_sock == -1)
         {
-            cerr << "err accepting connection" << endl;
+            cerr << "Error accepting client connection" << endl;
             continue;
         }
 
-        pthread_t client_thread;
-        int *new_sock = new int;
-        *new_sock = client_sock;
-        cerr << "thread created" << endl;
-        if (pthread_create(&client_thread, nullptr, handle_client, new_sock) == -1)
+        int *pclient = new int;
+        *pclient = client_sock;
+        pthread_t thread_id;
+        if (pthread_create(&thread_id, nullptr, handle_client, pclient) != 0)
         {
-            cerr << "err creating thread" << endl;
+            cerr << "Error creating thread" << endl;
+            delete pclient;
             close(client_sock);
-            continue;
         }
-        pthread_detach(client_thread);
+        else
+        {
+            pthread_detach(thread_id);
+        }
     }
 
     close(sock);
-    return EXIT_SUCCESS;
+    return 0;
 }
