@@ -21,6 +21,7 @@
 using namespace std;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<string, string>> indexes;
+unordered_map<string, string> config;
 pthread_mutex_t fileMutex = PTHREAD_MUTEX_INITIALIZER;
 
 string remove_char(const string &s, char ch)
@@ -39,25 +40,33 @@ unordered_map<int, pair<string, string>> createIndexes(string filename)
     ifstream file(filename);
     unordered_map<int, pair<string, string>> indexMap;
 
-    if (file.is_open())
+    if (!file.is_open())
     {
-        string line;
-        while (getline(file, line))
+        // If file does not exist, create a new empty file
+        ofstream newFile(filename);
+        if (!newFile)
         {
-            size_t commaPos = line.find(',');
-            int id = stoi(line.substr(0, commaPos));
-            string lineWithoutId = line.substr(commaPos + 1);
-            commaPos = lineWithoutId.find(',');
-            string name = lineWithoutId.substr(0, commaPos);
-            string message = remove_char(lineWithoutId.substr(commaPos + 1), '\"');
-            indexMap[id] = make_pair(name, message);
+            cerr << "Unable to create file: " << filename << endl;
+            return indexMap;
         }
-        file.close();
+        newFile.close();
+        cout << "File created: " << filename << endl;
+        return indexMap;
     }
-    else
+
+    string line;
+    while (getline(file, line))
     {
-        std::cerr << "Unable to open file" << std::endl;
+        size_t commaPos = line.find(',');
+        int id = stoi(line.substr(0, commaPos));
+        string lineWithoutId = line.substr(commaPos + 1);
+        commaPos = lineWithoutId.find(',');
+        string name = lineWithoutId.substr(0, commaPos);
+        string message = remove_char(lineWithoutId.substr(commaPos + 1), '\"');
+        indexMap[id] = make_pair(name, message);
     }
+    file.close();
+
     return indexMap;
 }
 
@@ -160,7 +169,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         if (arg1 != "" && buffer.size() == 2)
         {
             pthread_mutex_lock(&fileMutex);
-            int messageId = user->writeMessage(arg1, "bbfile.txt");
+            int messageId = user->writeMessage(arg1, config["BBFILE"]);
             string message = "WROTE " + to_string(messageId) + '\n';
             indexes[messageId] = make_pair(user->getName(), arg1);
             send(client_sock, message.c_str(), message.length(), 0);
@@ -181,7 +190,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             if (indexes.find(messageId) != indexes.end())
             {
                 pthread_mutex_lock(&fileMutex);
-                bool replaced = user->replaceMessage(messageId, new_message, "bbfile.txt");
+                bool replaced = user->replaceMessage(messageId, new_message, config["BBFILE"]);
                 if (replaced)
                 {
 
@@ -227,8 +236,14 @@ void *handle_client(void *args)
     cout << "connection accepted" << endl;
     int client_sock = *(int *)args;
     delete (int *)args;
-    const char *welcomMessage = "Connection establish succesfully! \n";
-    send(client_sock, welcomMessage, strlen(welcomMessage), 0);
+    string helpMessage =
+        "USER    <name>                    Set the name\n"
+        "READ    <messageId>               Read a message using Message Id\n"
+        "WRITE   \"<message>\"               Write a message to bulletin board\n"
+        "REPLACE <messageId> \"<message>\"   Replace a message with a new one\n"
+        "QUIT                              Quit from the server\n";
+    string welcomMessage = "Connection establish succesfully! \n" + helpMessage;
+    send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
     const size_t bufferSize = 1024 * 1024;
     char *buffer = new char[bufferSize];
     bulletinBoard *user = new bulletinBoard();
@@ -316,7 +331,7 @@ unordered_map<string, string> readConfig(const string &filename)
 int main()
 {
     signal(SIGINT, signalHandler);
-    unordered_map<string, string> config = readConfig("bbserv.conf");
+    config = readConfig("bbserv.conf");
     if (config.find("BBFILE") == config.end())
     {
         cerr << "Could not find the BBFILE in the configuration. Add the BBFILE=<your BB file> in bbserv.conf file" << endl;
