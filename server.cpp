@@ -13,16 +13,70 @@
 #include <unordered_map>
 #include <fstream>
 #include <utility>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #define DESIRED_ADDRESS "127.0.0.1"
 #define BBPORT 9000
 #define BUFSIZE 512
+#define DAEMON true
 
 using namespace std;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<string, string>> indexes;
 unordered_map<string, string> config;
 pthread_mutex_t fileMutex = PTHREAD_MUTEX_INITIALIZER;
+
+void daemonize()
+{
+    pid_t pid = fork();
+
+    if (pid < 0)
+    {
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid > 0)
+    {
+        // Parent process
+        exit(EXIT_SUCCESS);
+    }
+
+    // Child process
+    if (setsid() < 0)
+    {
+        // Create a new session
+        exit(EXIT_FAILURE);
+    }
+
+    // Fork again to ensure the daemon cannot reacquire a terminal
+    pid = fork();
+
+    if (pid < 0)
+    {
+        exit(EXIT_FAILURE);
+    }
+
+    if (pid > 0)
+    {
+        exit(EXIT_SUCCESS);
+    }
+
+    // Change the file mode mask
+    umask(0);
+
+    // Close all open file descriptors
+    for (int fd = sysconf(_SC_OPEN_MAX); fd >= 0; fd--)
+    {
+        close(fd);
+    }
+
+    // Redirect standard file descriptors to /dev/null
+    int fd0 = open("/dev/null", O_RDWR);
+    int fd1 = dup(0);
+    int fd2 = dup(0);
+}
 
 string remove_char(const string &s, char ch)
 {
@@ -337,7 +391,16 @@ int main()
         cerr << "Could not find the BBFILE in the configuration. Add the BBFILE=<your BB file> in bbserv.conf file" << endl;
         return 1;
     }
+
     indexes = createIndexes(config["BBFILE"]);
+    uint16_t port = config.find("BBPORT") == config.end() ? BBPORT : stoi(config["BBPORT"]);
+    bool daemon = config.find("DAEMON") == config.end() ? DAEMON : config["DAEMON"] == "true" ? true
+                                                                                              : false;
+
+    if (daemon)
+    {
+        daemonize();
+    }
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == -1)
@@ -345,7 +408,7 @@ int main()
         cerr << "Unable to create socket" << endl;
         return 1;
     }
-    uint16_t port = config.find("BBPORT") == config.end() ? BBPORT : stoi(config["BBPORT"]);
+
     sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
