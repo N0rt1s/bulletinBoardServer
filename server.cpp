@@ -26,7 +26,14 @@ using namespace std;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<string, string>> indexes;
 unordered_map<string, string> config;
+vector<string> serverAddresses;
 pthread_mutex_t fileMutex = PTHREAD_MUTEX_INITIALIZER;
+
+struct clientData
+{
+    int socket;
+    string address;
+};
 
 void daemonize()
 {
@@ -166,130 +173,209 @@ vector<string> bufferSplit(const char *buffer)
     return bufferArray;
 }
 
-int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
+bool syncWithServers(const string &command, const string &arg1, const string &arg2 = "")
 {
-    // cout << "buffer.size()=>" << buffer.size() << endl;
-    string command = buffer[0];
-    // cout << "command=>" << command << endl;
-    string arg1 = buffer.size() > 1 ? buffer[1] : "";
-    string arg2 = buffer.size() > 2 ? buffer[2] : "";
-    if (command == "USER")
+    string message = command + " " + arg1;
+    if (!arg2.empty())
     {
-        if (arg1 != "" && buffer.size() == 2)
-        {
-            if (regex_match(arg1, pattern))
-            {
-                user->setName(arg1);
-                string message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
-            }
-            else
-            {
-                string message = "ERROR USER name should not contain any special character.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
-            }
-        }
-        else
-        {
-            string message = "ERROR USER command takes only 1 positional arguments.\n";
-            send(client_sock, message.c_str(), message.length(), 0);
-        }
+        message += " " + arg2;
     }
-    else if (command == "READ")
-    {
-        if (arg1 != "" && buffer.size() == 2)
-        {
-            int messageId = stoi(arg1);
-            if (indexes.find(messageId) != indexes.end())
-            {
-                pair<string, string> data = indexes[messageId];
-                string message = "MESSAGE " + to_string(messageId) + " " + data.first + " || " + data.second + "\n";
-                send(client_sock, message.c_str(), message.length(), 0);
-            }
-            else
-            {
-                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
-            }
-        }
-        else
-        {
-            string message = "ERROR READ command takes only 1 positional arguments.\n";
-            send(client_sock, message.c_str(), message.length(), 0);
-        }
-    }
-    else if (command == "WRITE")
-    {
-        if (arg1 != "" && buffer.size() == 2)
-        {
-            pthread_mutex_lock(&fileMutex);
-            int messageId = user->writeMessage(arg1, config["BBFILE"]);
-            string message = "WROTE " + to_string(messageId) + '\n';
-            indexes[messageId] = make_pair(user->getName(), arg1);
-            send(client_sock, message.c_str(), message.length(), 0);
-            pthread_mutex_unlock(&fileMutex);
-        }
-        else
-        {
-            string message = "ERROR WRITE command takes only 1 positional arguments.\n";
-            send(client_sock, message.c_str(), message.length(), 0);
-        }
-    }
-    else if (command == "REPLACE")
-    {
-        if (buffer.size() == 3)
-        {
-            int messageId = stoi(arg1);
-            string new_message = arg2;
-            if (indexes.find(messageId) != indexes.end())
-            {
-                pthread_mutex_lock(&fileMutex);
-                bool replaced = user->replaceMessage(messageId, new_message, config["BBFILE"]);
-                if (replaced)
-                {
+    message += "\n";
 
-                    indexes[messageId] = make_pair(user->getName(), arg2);
-                    string message = "WROTE " + to_string(messageId) + '\n';
+    int sockets[serverAddresses.size()];
+    for (const string &serverAddress : serverAddresses)
+    {
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (sock == -1)
+        {
+            cerr << "Unable to create socket for server " << serverAddress << endl;
+            return false;
+        }
+        int port = stoi(serverAddress.substr(serverAddress.find(",")));
+        string address = serverAddress.substr(0, serverAddress.find(","));
+        sockaddr_in addr = {0};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port); // Assume same port for simplicity, modify if needed
+        addr.sin_addr.s_addr = inet_addr(address.c_str());
+
+        if (connect(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
+        {
+            cerr << "Unable to connect to server " << serverAddress << endl;
+            close(sock);
+            return false;
+        }
+    }
+
+    for (size_t i = 0; i < serverAddresses.size(); i++)
+    {
+
+        send(sockets[i], message.c_str(), message.length(), 0);
+
+        // Read response
+        char buffer[BUFSIZE];
+        int bytes_received = recv(sockets[i], buffer, BUFSIZE - 1, 0);
+        if (bytes_received > 0)
+        {
+            buffer[bytes_received] = '\0';
+            cout << "Response from " << serverAddresses[i] << ": " << buffer << endl;
+        }
+        else
+        {
+            cerr << "Error receiving response from " << serverAddresses[i] << endl;
+        }
+
+        close(sockets[i]);
+    }
+
+    return true;
+}
+
+    int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
+    {
+        // cout << "buffer.size()=>" << buffer.size() << endl;
+        string command = buffer[0];
+        // cout << "command=>" << command << endl;
+        string arg1 = buffer.size() > 1 ? buffer[1] : "";
+        string arg2 = buffer.size() > 2 ? buffer[2] : "";
+        if (command == "USER")
+        {
+            if (arg1 != "" && buffer.size() == 2)
+            {
+                if (regex_match(arg1, pattern))
+                {
+                    user->setName(arg1);
+                    string message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
                     send(client_sock, message.c_str(), message.length(), 0);
                 }
                 else
                 {
-                    string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+                    string message = "ERROR USER name should not contain any special character.\n";
                     send(client_sock, message.c_str(), message.length(), 0);
                 }
-                pthread_mutex_unlock(&fileMutex);
             }
             else
             {
-                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                string message = "ERROR USER command takes only 1 positional arguments.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
         }
+        else if (command == "READ")
+        {
+            if (arg1 != "" && buffer.size() == 2)
+            {
+                int messageId = stoi(arg1);
+                if (indexes.find(messageId) != indexes.end())
+                {
+                    pair<string, string> data = indexes[messageId];
+                    string message = "MESSAGE " + to_string(messageId) + " " + data.first + " || " + data.second + "\n";
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
+                else
+                {
+                    string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
+            }
+            else
+            {
+                string message = "ERROR READ command takes only 1 positional arguments.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+        }
+        else if (command == "WRITE")
+        {
+            pthread_mutex_lock(&fileMutex);
+            cout << "it is " << (user->getIsServer() ? "" : "not ") << "a server" << endl;
+            if (arg1 != "" && buffer.size() == 2)
+            {
+                if (syncWithServers(command, arg1, arg2))
+                {
+                    int messageId = user->writeMessage(arg1, config["BBFILE"]);
+                    string message = "WROTE " + to_string(messageId) + '\n';
+                    indexes[messageId] = make_pair(user->getName(), arg1);
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
+                else
+                {
+                    string message = "ERROR syncing servers.\n";
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
+            }
+            else
+            {
+                string message = "ERROR WRITE command takes only 1 positional arguments.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+
+            pthread_mutex_unlock(&fileMutex);
+        }
+        else if (command == "REPLACE")
+        {
+            pthread_mutex_lock(&fileMutex);
+            if (buffer.size() == 3)
+            {
+                int messageId = stoi(arg1);
+                string new_message = arg2;
+                if (indexes.find(messageId) != indexes.end())
+                {
+                    if (syncWithServers(command, arg1, arg2))
+                    {
+
+                        bool replaced = user->replaceMessage(messageId, new_message, config["BBFILE"]);
+                        if (replaced)
+                        {
+
+                            indexes[messageId] = make_pair(user->getName(), arg2);
+                            string message = "WROTE " + to_string(messageId) + '\n';
+                            send(client_sock, message.c_str(), message.length(), 0);
+                        }
+                        else
+                        {
+                            string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+                            send(client_sock, message.c_str(), message.length(), 0);
+                        }
+                    }
+                    else
+                    {
+                        string message = "ERROR syncing servers.\n";
+                        send(client_sock, message.c_str(), message.length(), 0);
+                    }
+                }
+                else
+                {
+                    string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
+            }
+            else
+            {
+                string message = "ERROR REPLACE command takes only 2 positional arguments.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+            pthread_mutex_unlock(&fileMutex);
+        }
+        else if (command == "QUIT" || command == "\377\364\377\375\006")
+        {
+            // delete user;
+            close(client_sock);
+        }
         else
         {
-            string message = "ERROR REPLACE command takes only 2 positional arguments.\n";
+            string message = "ERROR entered command is incorrect.\n";
             send(client_sock, message.c_str(), message.length(), 0);
         }
+        return 1;
     }
-    else if (command == "QUIT" || command == "\377\364\377\375\006")
-    {
-        // delete user;
-        close(client_sock);
-    }
-    else
-    {
-        string message = "ERROR entered command is incorrect.\n";
-        send(client_sock, message.c_str(), message.length(), 0);
-    }
-    return 1;
-}
 
 void *handle_client(void *args)
 {
 
     cout << "connection accepted" << endl;
-    int client_sock = *(int *)args;
-    delete (int *)args;
+    clientData *data = (clientData *)args;
+    int client_sock = data->socket;
+    string address = data->address;
+    bool isServer = find(serverAddresses.begin(), serverAddresses.end(), address) != serverAddresses.end();
+    delete data;
     string helpMessage =
         "USER    <name>                    Set the name\n"
         "READ    <messageId>               Read a message using Message Id\n"
@@ -300,7 +386,7 @@ void *handle_client(void *args)
     send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
     const size_t bufferSize = 1024 * 1024;
     char *buffer = new char[bufferSize];
-    bulletinBoard *user = new bulletinBoard();
+    bulletinBoard *user = new bulletinBoard(isServer);
     while (true)
     {
         // char buffer[1024];
@@ -368,7 +454,14 @@ unordered_map<string, string> readConfig(const string &filename)
                     key.erase(key.find_last_not_of(" \t\r\n") + 1);
                     value.erase(0, value.find_first_not_of(" \t\r\n"));
                     value.erase(value.find_last_not_of(" \t\r\n") + 1);
-                    config[key] = value;
+                    if (key == "PEER")
+                    {
+                        serverAddresses.push_back(value);
+                    }
+                    else
+                    {
+                        config[key] = value;
+                    }
                 }
             }
         }
@@ -441,10 +534,24 @@ int main()
             cerr << "Error accepting client connection" << endl;
             continue;
         }
+        getpeername(sock, (struct sockaddr *)&client_addr, &client_addr_size);
 
-        int *pclient = new int;
-        *pclient = client_sock;
+        char client_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+        int client_port = ntohs(client_addr.sin_port);
+        ostringstream oss;
+        oss << client_ip << "," << client_port;
+        string client_ipaddr = oss.str();
+        cout << "Connected to client with IP address: " << client_ipaddr << endl;
+
+        // int *pclient = new int;
+        // *pclient = client_sock;
+        clientData *pclient = new clientData;
+        pclient->address = client_ipaddr;
+        pclient->socket = client_sock;
+
         pthread_t thread_id;
+
         if (pthread_create(&thread_id, nullptr, handle_client, pclient) != 0)
         {
             cerr << "Error creating thread" << endl;
