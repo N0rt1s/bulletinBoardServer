@@ -27,7 +27,7 @@ regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<string, string>> indexes;
 unordered_map<string, string> config;
 vector<string> serverAddresses;
-pthread_mutex_t fileMutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
 struct clientData
 {
@@ -230,70 +230,112 @@ bool syncWithServers(const string &command, const string &arg1, const string &ar
     return true;
 }
 
-    int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
+int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
+{
+    // cout << "buffer.size()=>" << buffer.size() << endl;
+    string command = buffer[0];
+    // cout << "command=>" << command << endl;
+    string arg1 = buffer.size() > 1 ? buffer[1] : "";
+    string arg2 = buffer.size() > 2 ? buffer[2] : "";
+    if (command == "USER")
     {
-        // cout << "buffer.size()=>" << buffer.size() << endl;
-        string command = buffer[0];
-        // cout << "command=>" << command << endl;
-        string arg1 = buffer.size() > 1 ? buffer[1] : "";
-        string arg2 = buffer.size() > 2 ? buffer[2] : "";
-        if (command == "USER")
+        if (arg1 != "" && buffer.size() == 2)
         {
-            if (arg1 != "" && buffer.size() == 2)
+            if (regex_match(arg1, pattern))
             {
-                if (regex_match(arg1, pattern))
-                {
-                    user->setName(arg1);
-                    string message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
-                    send(client_sock, message.c_str(), message.length(), 0);
-                }
-                else
-                {
-                    string message = "ERROR USER name should not contain any special character.\n";
-                    send(client_sock, message.c_str(), message.length(), 0);
-                }
+                user->setName(arg1);
+                string message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
             }
             else
             {
-                string message = "ERROR USER command takes only 1 positional arguments.\n";
+                string message = "ERROR USER name should not contain any special character.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
         }
-        else if (command == "READ")
+        else
         {
-            if (arg1 != "" && buffer.size() == 2)
+            string message = "ERROR USER command takes only 1 positional arguments.\n";
+            send(client_sock, message.c_str(), message.length(), 0);
+        }
+    }
+    else if (command == "READ")
+    {
+        pthread_rwlock_rdlock(&rwlock);
+        if (arg1 != "" && buffer.size() == 2)
+        {
+            int messageId = stoi(arg1);
+            if (indexes.find(messageId) != indexes.end())
             {
-                int messageId = stoi(arg1);
-                if (indexes.find(messageId) != indexes.end())
-                {
-                    pair<string, string> data = indexes[messageId];
-                    string message = "MESSAGE " + to_string(messageId) + " " + data.first + " || " + data.second + "\n";
-                    send(client_sock, message.c_str(), message.length(), 0);
-                }
-                else
-                {
-                    string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
-                    send(client_sock, message.c_str(), message.length(), 0);
-                }
+                pair<string, string> data = indexes[messageId];
+                string message = "MESSAGE " + to_string(messageId) + " " + data.first + " || " + data.second + "\n";
+                send(client_sock, message.c_str(), message.length(), 0);
             }
             else
             {
-                string message = "ERROR READ command takes only 1 positional arguments.\n";
+                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
         }
-        else if (command == "WRITE")
+        else
         {
-            pthread_mutex_lock(&fileMutex);
-            cout << "it is " << (user->getIsServer() ? "" : "not ") << "a server" << endl;
-            if (arg1 != "" && buffer.size() == 2)
+            string message = "ERROR READ command takes only 1 positional arguments.\n";
+            send(client_sock, message.c_str(), message.length(), 0);
+        }
+        pthread_rwlock_unlock(&rwlock);
+    }
+    else if (command == "WRITE")
+    {
+        pthread_rwlock_wrlock(&rwlock);
+        cout << "it is " << (user->getIsServer() ? "" : "not ") << "a server" << endl;
+        if (arg1 != "" && buffer.size() == 2)
+        {
+            if (syncWithServers(command, arg1, arg2))
+            {
+                int messageId = user->writeMessage(arg1, config["BBFILE"]);
+                string message = "WROTE " + to_string(messageId) + '\n';
+                indexes[messageId] = make_pair(user->getName(), arg1);
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+            else
+            {
+                string message = "ERROR syncing servers.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+        }
+        else
+        {
+            string message = "ERROR WRITE command takes only 1 positional arguments.\n";
+            send(client_sock, message.c_str(), message.length(), 0);
+        }
+
+        pthread_rwlock_unlock(&rwlock);
+    }
+    else if (command == "REPLACE")
+    {
+        pthread_rwlock_wrlock(&rwlock);
+        if (buffer.size() == 3)
+        {
+            int messageId = stoi(arg1);
+            string new_message = arg2;
+            if (indexes.find(messageId) != indexes.end())
             {
                 if (syncWithServers(command, arg1, arg2))
                 {
-                    int messageId = user->writeMessage(arg1, config["BBFILE"]);
-                    string message = "WROTE " + to_string(messageId) + '\n';
-                    indexes[messageId] = make_pair(user->getName(), arg1);
-                    send(client_sock, message.c_str(), message.length(), 0);
+
+                    bool replaced = user->replaceMessage(messageId, new_message, config["BBFILE"]);
+                    if (replaced)
+                    {
+
+                        indexes[messageId] = make_pair(user->getName(), arg2);
+                        string message = "WROTE " + to_string(messageId) + '\n';
+                        send(client_sock, message.c_str(), message.length(), 0);
+                    }
+                    else
+                    {
+                        string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+                        send(client_sock, message.c_str(), message.length(), 0);
+                    }
                 }
                 else
                 {
@@ -303,69 +345,29 @@ bool syncWithServers(const string &command, const string &arg1, const string &ar
             }
             else
             {
-                string message = "ERROR WRITE command takes only 1 positional arguments.\n";
+                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
-
-            pthread_mutex_unlock(&fileMutex);
-        }
-        else if (command == "REPLACE")
-        {
-            pthread_mutex_lock(&fileMutex);
-            if (buffer.size() == 3)
-            {
-                int messageId = stoi(arg1);
-                string new_message = arg2;
-                if (indexes.find(messageId) != indexes.end())
-                {
-                    if (syncWithServers(command, arg1, arg2))
-                    {
-
-                        bool replaced = user->replaceMessage(messageId, new_message, config["BBFILE"]);
-                        if (replaced)
-                        {
-
-                            indexes[messageId] = make_pair(user->getName(), arg2);
-                            string message = "WROTE " + to_string(messageId) + '\n';
-                            send(client_sock, message.c_str(), message.length(), 0);
-                        }
-                        else
-                        {
-                            string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
-                            send(client_sock, message.c_str(), message.length(), 0);
-                        }
-                    }
-                    else
-                    {
-                        string message = "ERROR syncing servers.\n";
-                        send(client_sock, message.c_str(), message.length(), 0);
-                    }
-                }
-                else
-                {
-                    string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
-                    send(client_sock, message.c_str(), message.length(), 0);
-                }
-            }
-            else
-            {
-                string message = "ERROR REPLACE command takes only 2 positional arguments.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
-            }
-            pthread_mutex_unlock(&fileMutex);
-        }
-        else if (command == "QUIT" || command == "\377\364\377\375\006")
-        {
-            // delete user;
-            close(client_sock);
         }
         else
         {
-            string message = "ERROR entered command is incorrect.\n";
+            string message = "ERROR REPLACE command takes only 2 positional arguments.\n";
             send(client_sock, message.c_str(), message.length(), 0);
         }
-        return 1;
+        pthread_rwlock_unlock(&rwlock);
     }
+    else if (command == "QUIT" || command == "\377\364\377\375\006")
+    {
+        // delete user;
+        close(client_sock);
+    }
+    else
+    {
+        string message = "ERROR entered command is incorrect.\n";
+        send(client_sock, message.c_str(), message.length(), 0);
+    }
+    return 1;
+}
 
 void *handle_client(void *args)
 {
