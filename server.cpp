@@ -25,6 +25,7 @@
 using namespace std;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<string, string>> indexes;
+unordered_map<int, pair<int, int>> indexes1;
 unordered_map<string, string> config;
 vector<string> serverAddresses;
 pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
@@ -85,6 +86,19 @@ void daemonize()
     int fd2 = dup(0);
 }
 
+void updateIndexes(int messageId, int oldLength, int newLength)
+{
+    int lengthDiff = newLength > oldLength ? newLength - oldLength : oldLength - newLength;
+
+    for (int i = messageId + 1; i < indexes1.size(); i++)
+    {
+        if (newLength > oldLength)
+            indexes1[i].first += lengthDiff;
+        else
+            indexes1[i].first -= lengthDiff;
+    }
+}
+
 string remove_char(const string &s, char ch)
 {
     string result = s;
@@ -96,10 +110,10 @@ string remove_char(const string &s, char ch)
     return result;
 }
 
-unordered_map<int, pair<string, string>> createIndexes(string filename)
+unordered_map<int, pair<int, int>> createIndexes1(string filename)
 {
     ifstream file(filename);
-    unordered_map<int, pair<string, string>> indexMap;
+    unordered_map<int, pair<int, int>> indexMap;
 
     if (!file.is_open())
     {
@@ -116,20 +130,55 @@ unordered_map<int, pair<string, string>> createIndexes(string filename)
     }
 
     string line;
+    int lineNumber = 1;
+    long pos = file.tellg();
+
     while (getline(file, line))
     {
-        size_t commaPos = line.find(',');
-        int id = stoi(line.substr(0, commaPos));
-        string lineWithoutId = line.substr(commaPos + 1);
-        commaPos = lineWithoutId.find(',');
-        string name = lineWithoutId.substr(0, commaPos);
-        string message = remove_char(lineWithoutId.substr(commaPos + 1), '\"');
-        indexMap[id] = make_pair(name, message);
+        long startPos = pos;
+        long lineLength = file.tellg() - pos;
+        indexMap[lineNumber] = make_pair(startPos, lineLength);
+        pos = file.tellg();
+        lineNumber++;
     }
-    file.close();
 
     return indexMap;
 }
+
+// unordered_map<int, pair<string, string>> createIndexes(string filename)
+// {
+//     ifstream file(filename);
+//     unordered_map<int, pair<string, string>> indexMap;
+
+//     if (!file.is_open())
+//     {
+//         // If file does not exist, create a new empty file
+//         ofstream newFile(filename);
+//         if (!newFile)
+//         {
+//             cerr << "Unable to create file: " << filename << endl;
+//             return indexMap;
+//         }
+//         newFile.close();
+//         cout << "File created: " << filename << endl;
+//         return indexMap;
+//     }
+
+//     string line;
+//     while (getline(file, line))
+//     {
+//         size_t commaPos = line.find(',');
+//         int id = stoi(line.substr(0, commaPos));
+//         string lineWithoutId = line.substr(commaPos + 1);
+//         commaPos = lineWithoutId.find(',');
+//         string name = lineWithoutId.substr(0, commaPos);
+//         string message = remove_char(lineWithoutId.substr(commaPos + 1), '\"');
+//         indexMap[id] = make_pair(name, message);
+//     }
+//     file.close();
+
+//     return indexMap;
+// }
 
 vector<string> bufferSplit(const char *buffer)
 {
@@ -265,10 +314,11 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         if (arg1 != "" && buffer.size() == 2)
         {
             int messageId = stoi(arg1);
-            if (indexes.find(messageId) != indexes.end())
+            if (!indexes.empty() && indexes1.find(messageId) != indexes1.end())
             {
-                pair<string, string> data = indexes[messageId];
-                string message = "MESSAGE " + to_string(messageId) + " " + data.first + " || " + data.second + "\n";
+                pair<int, int> data = indexes1[messageId];
+                pair<string, string> message1 = user->readMessage(data.first, data.second, config["BBFILE"]);
+                string message = "MESSAGE " + to_string(messageId) + " " + message1.first + " || " + message1.second + "\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
             else
@@ -276,6 +326,17 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
+            // if (indexes.find(messageId) != indexes.end())
+            // {
+            //     pair<string, string> data = indexes[messageId];
+            //     string message = "MESSAGE " + to_string(messageId) + " " + data.first + " || " + data.second + "\n";
+            //     send(client_sock, message.c_str(), message.length(), 0);
+            // }
+            // else
+            // {
+            //     string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+            //     send(client_sock, message.c_str(), message.length(), 0);
+            // }
         }
         else
         {
@@ -292,10 +353,19 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         {
             if (syncWithServers(command, arg1, arg2))
             {
-                int messageId = user->writeMessage(arg1, config["BBFILE"]);
-                string message = "WROTE " + to_string(messageId) + '\n';
-                indexes[messageId] = make_pair(user->getName(), arg1);
-                send(client_sock, message.c_str(), message.length(), 0);
+                string message = "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
+                int messageId = user->writeMessage(message, config["BBFILE"]);
+                message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
+                long startPos = 0;
+                if (!indexes.empty())
+                {
+                    auto lastEntry = indexes1[indexes1.size()]; // Get the last entry
+                    startPos = lastEntry.first + lastEntry.second;
+                }
+
+                indexes1[messageId] = make_pair(startPos, message.length());
+                string messageResponse = "WROTE " + to_string(messageId) + '\n';
+                send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
             }
             else
             {
@@ -318,36 +388,68 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         {
             int messageId = stoi(arg1);
             string new_message = arg2;
-            if (indexes.find(messageId) != indexes.end())
+            if (indexes1.find(messageId) != indexes1.end())
             {
                 if (syncWithServers(command, arg1, arg2))
                 {
-
-                    bool replaced = user->replaceMessage(messageId, new_message, config["BBFILE"]);
+                    int startpos = indexes1[messageId].first;
+                    int messageLength = indexes1[messageId].second;
+                    string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
+                    bool replaced = user->replaceMessage(startpos, messageLength, message, config["BBFILE"]);
                     if (replaced)
                     {
-
-                        indexes[messageId] = make_pair(user->getName(), arg2);
-                        string message = "WROTE " + to_string(messageId) + '\n';
-                        send(client_sock, message.c_str(), message.length(), 0);
+                        updateIndexes(messageId, messageLength, message.length());
+                        indexes1[messageId] = make_pair(startpos, message.length());
+                        string response = "WROTE " + to_string(messageId) + '\n';
+                        send(client_sock, response.c_str(), response.length(), 0);
                     }
                     else
                     {
-                        string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
-                        send(client_sock, message.c_str(), message.length(), 0);
+                        string response = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+                        send(client_sock, response.c_str(), response.length(), 0);
                     }
                 }
                 else
                 {
-                    string message = "ERROR syncing servers.\n";
-                    send(client_sock, message.c_str(), message.length(), 0);
+                    string response = "ERROR syncing servers.\n";
+                    send(client_sock, response.c_str(), response.length(), 0);
                 }
             }
             else
             {
-                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
+                string response = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                send(client_sock, response.c_str(), response.length(), 0);
             }
+            // if (indexes.find(messageId) != indexes.end())
+            // {
+            //     if (syncWithServers(command, arg1, arg2))
+            //     {
+
+            //         bool replaced = user->replaceMessage(messageId, new_message, config["BBFILE"]);
+            //         if (replaced)
+            //         {
+
+            //             indexes[messageId] = make_pair(user->getName(), arg2);
+            //             string message = "WROTE " + to_string(messageId) + '\n';
+            //             send(client_sock, message.c_str(), message.length(), 0);
+            //         }
+            //         else
+            //         {
+            //             string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+            //             send(client_sock, message.c_str(), message.length(), 0);
+            //         }
+            //     }
+            //     else
+            //     {
+            //         string message = "ERROR syncing servers.\n";
+            //         send(client_sock, message.c_str(), message.length(), 0);
+            //     }
+            // }
+            // else
+            // {
+            //     string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+            //     send(client_sock, message.c_str(), message.length(), 0);
+            // }
         }
         else
         {
@@ -487,7 +589,8 @@ int main()
         return 1;
     }
 
-    indexes = createIndexes(config["BBFILE"]);
+    // indexes = createIndexes(config["BBFILE"]);
+    indexes1 = createIndexes1(config["BBFILE"]);
     uint16_t port = config.find("BBPORT") == config.end() ? BBPORT : stoi(config["BBPORT"]);
     bool daemon = config.find("DAEMON") == config.end() ? DAEMON : config["DAEMON"] == "true" ? true
                                                                                               : false;

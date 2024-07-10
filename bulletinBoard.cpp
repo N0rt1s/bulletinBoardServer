@@ -24,6 +24,63 @@ bool bulletinBoard::getIsServer()
     return this->isServer;
 }
 
+pair<string, string> bulletinBoard::readMessage(int pos, int length, string filename)
+{
+    fstream file(filename, ios::in);
+    pair<string, string> messagePair;
+
+    if (!file.is_open())
+    {
+        return messagePair;
+    }
+
+    file.seekg(pos);
+    string line;
+    getline(file, line);
+
+    if (line.empty())
+    {
+        return messagePair;
+    }
+
+    int start = 0;
+    int commaCount = 0;
+    bool inQuotes = false;
+    string temp;
+
+    for (char ch : line)
+    {
+        if (ch == '\"')
+        {
+            inQuotes = !inQuotes;
+        }
+        else if (ch == ',' && !inQuotes)
+        {
+            if (commaCount == 0)
+            {
+                temp.clear();
+                // Skip the first comma (ID field)
+            }
+            else if (commaCount == 1)
+            {
+                messagePair.first = temp;
+                temp.clear();
+            }
+            commaCount++;
+        }
+        else
+        {
+            temp += ch;
+        }
+    }
+
+    messagePair.second = temp;
+
+    file.close();
+
+    return messagePair;
+}
+
 int bulletinBoard::writeMessage(string message, string filename)
 {
     ofstream outfile;
@@ -38,35 +95,40 @@ int bulletinBoard::writeMessage(string message, string filename)
     int id = countLines(filename) + 1;
 
     outfile.open(filename, ios_base::app); // append instead of overwrite
-    outfile << id << "," << this->name << ",\"" << message << "\"" << "\n";
+    outfile << id << message;
     outfile.close();
     return id;
 }
 
-bool bulletinBoard::replaceMessage(int messageId, string message, string filename)
+bool bulletinBoard::replaceMessage(int startPos, int messageLength, string message, string fileName)
 {
     try
     {
-        ifstream file(filename);
-        string line;
-        ofstream temp("temp.txt");
-        int lineNumber = 1;
+        fstream file(fileName, ios::in);
 
-        while (getline(file, line))
+        if (!file.is_open())
         {
-            if (lineNumber == messageId)
-            {
-                line = to_string(messageId) + "," + this->name + ",\"" + message + "\"" + "\n";
-            }
-            temp << line << endl;
-            lineNumber++;
+            return false;
         }
-
-        temp.close();
+        file.seekg(0, ios::beg);
+        string beforeContent(startPos, '\0');
+        file.read(&beforeContent[0], startPos);
+        // Read the remaining content after the line to be replaced
+        file.seekg(startPos + messageLength);
+        string remainingContent;
+        getline(file, remainingContent, '\0');
         file.close();
+        // Seek to the start position of the line to be replaced
+        file.open(fileName, ios::out);
 
-        remove(filename.c_str());
-        rename("temp.txt", filename.c_str());
+        if (!file.is_open())
+        {
+            return false;
+        }
+        file << beforeContent;
+        file.seekp(startPos);
+        file << message << remainingContent;
+        file.close();
         return true;
     }
     catch (const exception &e)

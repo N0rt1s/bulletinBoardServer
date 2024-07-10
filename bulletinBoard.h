@@ -18,7 +18,8 @@ public:
     std::string getName();
     bool getIsServer();
     int writeMessage(std::string message, std::string filename);
-    bool replaceMessage(int messageId, std::string message, std::string filename);
+    std::pair<std::string, std::string> readMessage(int pos, int length, std::string filename);
+    bool replaceMessage(int startpos, int MessageLength, std::string message, std::string filename);
     ~bulletinBoard();
 };
 
