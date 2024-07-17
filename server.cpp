@@ -8,6 +8,7 @@
 #include <cstring>
 #include <vector>
 #include "bulletinBoard.h"
+#include "threadPool.cpp"
 #include <regex>
 #include <csignal>
 #include <unordered_map>
@@ -314,7 +315,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         if (arg1 != "" && buffer.size() == 2)
         {
             int messageId = stoi(arg1);
-            if (!indexes.empty() && indexes1.find(messageId) != indexes1.end())
+            if (!indexes1.empty() && indexes1.find(messageId) != indexes1.end())
             {
                 pair<int, int> data = indexes1[messageId];
                 pair<string, string> message1 = user->readMessage(data.first, data.second, config["BBFILE"]);
@@ -357,7 +358,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 int messageId = user->writeMessage(message, config["BBFILE"]);
                 message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
                 long startPos = 0;
-                if (!indexes.empty())
+                if (!indexes1.empty())
                 {
                     auto lastEntry = indexes1[indexes1.size()]; // Get the last entry
                     startPos = lastEntry.first + lastEntry.second;
@@ -627,7 +628,7 @@ int main()
     }
 
     cout << "Server listening on " << DESIRED_ADDRESS << ":" << port << endl;
-
+    ThreadPool pool = ThreadPool(2);
     while (true)
     {
         sockaddr_in client_addr = {0};
@@ -654,19 +655,9 @@ int main()
         clientData *pclient = new clientData;
         pclient->address = client_ipaddr;
         pclient->socket = client_sock;
-
-        pthread_t thread_id;
-
-        if (pthread_create(&thread_id, nullptr, handle_client, pclient) != 0)
-        {
-            cerr << "Error creating thread" << endl;
-            delete pclient;
-            close(client_sock);
-        }
-        else
-        {
-            pthread_detach(thread_id);
-        }
+        
+        pool.enqueue([pclient]
+                     { handle_client(pclient); });
     }
 
     close(sock);
