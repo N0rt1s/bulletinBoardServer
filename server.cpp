@@ -233,6 +233,7 @@ bool syncWithServers(const string &command, const string &arg1, const string &ar
     message += "\n";
 
     int sockets[serverAddresses.size()];
+    int count = 0;
     for (const string &serverAddress : serverAddresses)
     {
         int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -241,7 +242,7 @@ bool syncWithServers(const string &command, const string &arg1, const string &ar
             cerr << "Unable to create socket for server " << serverAddress << endl;
             return false;
         }
-        string po = serverAddress.substr(serverAddress.find(",")+1);
+        string po = serverAddress.substr(serverAddress.find(",") + 1);
         int port = stoi(serverAddress.substr(serverAddress.find(",") + 1));
         string address = serverAddress.substr(0, serverAddress.find(","));
         sockaddr_in addr = {0};
@@ -255,6 +256,8 @@ bool syncWithServers(const string &command, const string &arg1, const string &ar
             close(sock);
             return false;
         }
+        sockets[count] = sock;
+        count++;
     }
 
     for (size_t i = 0; i < serverAddresses.size(); i++)
