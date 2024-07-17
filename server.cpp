@@ -20,10 +20,13 @@
 
 #define DESIRED_ADDRESS "127.0.0.1"
 #define BBPORT 9000
+#define SYNCPORT 10000
 #define BUFSIZE 512
+#define THMAX 20
 #define DAEMON true
 
 using namespace std;
+int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<string, string>> indexes;
 unordered_map<int, pair<int, int>> indexes1;
@@ -34,7 +37,7 @@ pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
 struct clientData
 {
     int socket;
-    string address;
+    bool isServer;
 };
 
 void daemonize()
@@ -225,6 +228,7 @@ vector<string> bufferSplit(const char *buffer)
 
 bool syncWithServers(const string &command, const string &arg1, const string &arg2 = "")
 {
+
     string message = command + " " + arg1;
     if (!arg2.empty())
     {
@@ -234,6 +238,7 @@ bool syncWithServers(const string &command, const string &arg1, const string &ar
 
     int sockets[serverAddresses.size()];
     int count = 0;
+
     for (const string &serverAddress : serverAddresses)
     {
         int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -249,6 +254,20 @@ bool syncWithServers(const string &command, const string &arg1, const string &ar
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port); // Assume same port for simplicity, modify if needed
         addr.sin_addr.s_addr = inet_addr(address.c_str());
+
+        // Prepare local address structure
+        sockaddr_in localAddr = {0};
+        localAddr.sin_family = AF_INET;
+        localAddr.sin_port = htons(syncport);          // Use the same local port for all connections
+        localAddr.sin_addr.s_addr = htonl(INADDR_ANY); // Bind to any available local address
+
+        // Bind socket to local port
+        if (bind(sock, (sockaddr *)&localAddr, sizeof(localAddr)) == -1)
+        {
+            cerr << "Bind failed for server " << serverAddress << endl;
+            close(sock);
+            return false;
+        }
 
         if (connect(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
         {
@@ -482,8 +501,7 @@ void *handle_client(void *args)
     cout << "connection accepted" << endl;
     clientData *data = (clientData *)args;
     int client_sock = data->socket;
-    string address = data->address;
-    bool isServer = find(serverAddresses.begin(), serverAddresses.end(), address) != serverAddresses.end();
+    bool isServer = data->isServer;
     delete data;
     string helpMessage =
         "USER    <name>                    Set the name\n"
@@ -584,6 +602,17 @@ unordered_map<string, string> readConfig(const string &filename)
     return config;
 }
 
+bool findServerIp(string ip)
+{
+    for (const string &serverAddress : serverAddresses)
+    {
+        string address = serverAddress.substr(0, serverAddress.find(","));
+        if (address == ip)
+            return true;
+    }
+    return false;
+}
+
 int main()
 {
     signal(SIGINT, signalHandler);
@@ -597,6 +626,7 @@ int main()
     // indexes = createIndexes(config["BBFILE"]);
     indexes1 = createIndexes1(config["BBFILE"]);
     uint16_t port = config.find("BBPORT") == config.end() ? BBPORT : stoi(config["BBPORT"]);
+    size_t thmax = config.find("THMAX") == config.end() ? THMAX : stoi(config["THMAX"]);
     bool daemon = config.find("DAEMON") == config.end() ? DAEMON : config["DAEMON"] == "true" ? true
                                                                                               : false;
 
@@ -632,7 +662,7 @@ int main()
     }
 
     cout << "Server listening on " << DESIRED_ADDRESS << ":" << port << endl;
-    ThreadPool pool = ThreadPool(2);
+    ThreadPool pool = ThreadPool(thmax);
     while (true)
     {
         sockaddr_in client_addr = {0};
@@ -649,15 +679,16 @@ int main()
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
         int client_port = ntohs(client_addr.sin_port);
-        ostringstream oss;
-        oss << client_ip << "," << client_port;
-        string client_ipaddr = oss.str();
-        cout << "Connected to client with IP address: " << client_ipaddr << endl;
+
+        bool isServer = false;
+        if (syncport == client_port)
+            isServer = findServerIp(client_ip);
+        cout << "Connected to client with IP address: " << client_ip << " wiht port: " << client_port << endl;
 
         // int *pclient = new int;
         // *pclient = client_sock;
         clientData *pclient = new clientData;
-        pclient->address = client_ipaddr;
+        pclient->isServer = isServer;
         pclient->socket = client_sock;
 
         pool.enqueue([pclient]
