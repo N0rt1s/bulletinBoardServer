@@ -9,6 +9,7 @@
 #include <vector>
 #include "bulletinBoard.h"
 #include "threadPool.cpp"
+#include "threadPool.cpp"
 #include <regex>
 #include <csignal>
 #include <unordered_map>
@@ -241,7 +242,8 @@ bool syncWithServers(const string &command, const string &arg1, const string &ar
             cerr << "Unable to create socket for server " << serverAddress << endl;
             return false;
         }
-        int port = stoi(serverAddress.substr(serverAddress.find(",")));
+        string po = serverAddress.substr(serverAddress.find(",")+1);
+        int port = stoi(serverAddress.substr(serverAddress.find(",") + 1));
         string address = serverAddress.substr(0, serverAddress.find(","));
         sockaddr_in addr = {0};
         addr.sin_family = AF_INET;
@@ -655,7 +657,7 @@ int main()
         clientData *pclient = new clientData;
         pclient->address = client_ipaddr;
         pclient->socket = client_sock;
-        
+
         pool.enqueue([pclient]
                      { handle_client(pclient); });
     }
