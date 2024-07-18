@@ -28,7 +28,6 @@
 using namespace std;
 int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
-unordered_map<int, pair<string, string>> indexes;
 unordered_map<int, pair<int, int>> indexes1;
 unordered_map<string, string> config;
 vector<string> serverAddresses;
@@ -148,41 +147,6 @@ unordered_map<int, pair<int, int>> createIndexes1(string filename)
 
     return indexMap;
 }
-
-// unordered_map<int, pair<string, string>> createIndexes(string filename)
-// {
-//     ifstream file(filename);
-//     unordered_map<int, pair<string, string>> indexMap;
-
-//     if (!file.is_open())
-//     {
-//         // If file does not exist, create a new empty file
-//         ofstream newFile(filename);
-//         if (!newFile)
-//         {
-//             cerr << "Unable to create file: " << filename << endl;
-//             return indexMap;
-//         }
-//         newFile.close();
-//         cout << "File created: " << filename << endl;
-//         return indexMap;
-//     }
-
-//     string line;
-//     while (getline(file, line))
-//     {
-//         size_t commaPos = line.find(',');
-//         int id = stoi(line.substr(0, commaPos));
-//         string lineWithoutId = line.substr(commaPos + 1);
-//         commaPos = lineWithoutId.find(',');
-//         string name = lineWithoutId.substr(0, commaPos);
-//         string message = remove_char(lineWithoutId.substr(commaPos + 1), '\"');
-//         indexMap[id] = make_pair(name, message);
-//     }
-//     file.close();
-
-//     return indexMap;
-// }
 
 vector<string> bufferSplit(const char *buffer)
 {
@@ -350,17 +314,6 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
-            // if (indexes.find(messageId) != indexes.end())
-            // {
-            //     pair<string, string> data = indexes[messageId];
-            //     string message = "MESSAGE " + to_string(messageId) + " " + data.first + " || " + data.second + "\n";
-            //     send(client_sock, message.c_str(), message.length(), 0);
-            // }
-            // else
-            // {
-            //     string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
-            //     send(client_sock, message.c_str(), message.length(), 0);
-            // }
         }
         else
         {
@@ -444,37 +397,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 string response = "UNKNOWN " + to_string(messageId) + " message not found.\n";
                 send(client_sock, response.c_str(), response.length(), 0);
             }
-            // if (indexes.find(messageId) != indexes.end())
-            // {
-            //     if (syncWithServers(command, arg1, arg2))
-            //     {
-
-            //         bool replaced = user->replaceMessage(messageId, new_message, config["BBFILE"]);
-            //         if (replaced)
-            //         {
-
-            //             indexes[messageId] = make_pair(user->getName(), arg2);
-            //             string message = "WROTE " + to_string(messageId) + '\n';
-            //             send(client_sock, message.c_str(), message.length(), 0);
-            //         }
-            //         else
-            //         {
-            //             string message = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
-            //             send(client_sock, message.c_str(), message.length(), 0);
-            //         }
-            //     }
-            //     else
-            //     {
-            //         string message = "ERROR syncing servers.\n";
-            //         send(client_sock, message.c_str(), message.length(), 0);
-            //     }
-            // }
-            // else
-            // {
-            //     string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
-            //     send(client_sock, message.c_str(), message.length(), 0);
-            // }
-        }
+             }
         else
         {
             string message = "ERROR REPLACE command takes only 2 positional arguments.\n";
