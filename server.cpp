@@ -237,6 +237,33 @@ bool syncWithServers(const string message)
         count++;
     }
 
+    bool syncError = false;
+    for (size_t i = 0; i < serverAddresses.size(); i++)
+    {
+
+        char buffer[BUFSIZE];
+        int bytes_received = recv(sockets[i], buffer, BUFSIZE - 1, 0);
+        if (bytes_received > 0)
+        {
+            buffer[bytes_received] = '\0';
+            cout << "Response from " << serverAddresses[i] << ": " << buffer << endl;
+        }
+        else
+        {
+            cerr << "Error receiving response from " << serverAddresses[i] << endl;
+            syncError = true;
+        }
+    }
+
+    if (syncError)
+    {
+        for (size_t i = 0; i < serverAddresses.size(); i++)
+        {
+            close(sockets[i]);
+        }
+        return false;
+    }
+
     for (size_t i = 0; i < serverAddresses.size(); i++)
     {
 
