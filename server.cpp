@@ -189,16 +189,10 @@ vector<string> bufferSplit(const char *buffer)
     return bufferArray;
 }
 
-bool syncWithServers(const string &command, const string &arg1, const string &arg2 = "")
+bool syncWithServers(const string message)
 {
 
     int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
-    string message = command + " " + arg1;
-    if (!arg2.empty())
-    {
-        message += " " + arg2;
-    }
-    message += "\n";
 
     int sockets[serverAddresses.size()];
     int count = 0;
@@ -328,9 +322,9 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         cout << "it is " << (user->getIsServer() ? "" : "not ") << "a server" << endl;
         if (arg1 != "" && buffer.size() == 2)
         {
-            if (syncWithServers(command, arg1, arg2))
+            string message = "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
+            if (syncWithServers(message))
             {
-                string message = "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
                 int messageId = user->writeMessage(message, config["BBFILE"]);
                 message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
                 long startPos = 0;
@@ -346,8 +340,8 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             }
             else
             {
-                string message = "ERROR syncing servers.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
+                string messageResponse = "ERROR syncing servers.\n";
+                send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
             }
         }
         else
@@ -367,11 +361,11 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             string new_message = arg2;
             if (indexes1.find(messageId) != indexes1.end())
             {
-                if (syncWithServers(command, arg1, arg2))
+                string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
+                if (syncWithServers(message))
                 {
                     int startpos = indexes1[messageId].first;
                     int messageLength = indexes1[messageId].second;
-                    string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
                     bool replaced = user->replaceMessage(startpos, messageLength, message, config["BBFILE"]);
                     if (replaced)
                     {
