@@ -26,10 +26,9 @@
 #define DAEMON true
 
 using namespace std;
-int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
+unordered_map<string, string> config;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<int, int>> indexes1;
-unordered_map<string, string> config;
 vector<string> serverAddresses;
 pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
 
@@ -193,6 +192,7 @@ vector<string> bufferSplit(const char *buffer)
 bool syncWithServers(const string &command, const string &arg1, const string &arg2 = "")
 {
 
+    int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
     string message = command + " " + arg1;
     if (!arg2.empty())
     {
@@ -397,7 +397,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 string response = "UNKNOWN " + to_string(messageId) + " message not found.\n";
                 send(client_sock, response.c_str(), response.length(), 0);
             }
-             }
+        }
         else
         {
             string message = "ERROR REPLACE command takes only 2 positional arguments.\n";
@@ -552,6 +552,7 @@ int main()
     size_t thmax = config.find("THMAX") == config.end() ? THMAX : stoi(config["THMAX"]);
     bool daemon = config.find("DAEMON") == config.end() ? DAEMON : config["DAEMON"] == "true" ? true
                                                                                               : false;
+    int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
 
     if (daemon)
     {
