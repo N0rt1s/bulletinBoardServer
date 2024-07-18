@@ -418,7 +418,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
     return 1;
 }
 
-int handle_server_commands(vector<string> buffer, int client_sock)
+void handle_server_commands(vector<string> buffer, int client_sock)
 {
     string arg1 = buffer.size() > 1 ? buffer[1] : "";
     string arg2 = buffer.size() > 2 ? buffer[2] : "";
@@ -461,7 +461,7 @@ int handle_server_commands(vector<string> buffer, int client_sock)
 
         if (!file.is_open())
         {
-            return false;
+            file.open(filename, ios::in);
         }
 
         file.seekg(0, ios::beg);
@@ -477,7 +477,7 @@ int handle_server_commands(vector<string> buffer, int client_sock)
 
         if (!file.is_open())
         {
-            return false;
+            file.open(filename, ios::out);
         }
         file << beforeContent;
         file.seekp(startPos);
