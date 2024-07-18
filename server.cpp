@@ -418,6 +418,79 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
     return 1;
 }
 
+int handle_server_commands(vector<string> buffer, int client_sock)
+{
+    string arg1 = buffer.size() > 1 ? buffer[1] : "";
+    string arg2 = buffer.size() > 2 ? buffer[2] : "";
+    const string filename = config["BBFILE"];
+    if (arg1 != "" && arg2 == "")
+    {
+        ofstream outfile;
+
+        struct stat buffer;
+        if (stat(filename.c_str(), &buffer) != 0)
+        {
+            // File doesn't exist, create it
+            ofstream createFile(filename);
+            createFile.close();
+        }
+        int id = stoi(arg1.substr(0, arg1.find(",")));
+
+        outfile.open(filename, ios_base::app);
+        outfile << arg1;
+        outfile.close();
+        long startPos = 0;
+        if (!indexes1.empty())
+        {
+            auto lastEntry = indexes1[indexes1.size()];
+            startPos = lastEntry.first + lastEntry.second;
+        }
+
+        indexes1[id] = make_pair(startPos, arg1.length());
+        string messageResponse = "WROTE " + to_string(id) + '\n';
+        send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
+    }
+    else
+    {
+        int messageId = stoi(arg1);
+        string new_message = arg2;
+        int startPos = indexes1[messageId].first;
+        int messageLength = indexes1[messageId].second;
+        string message = to_string(messageId) + "," + new_message + "\n";
+        fstream file(filename, ios::in);
+
+        if (!file.is_open())
+        {
+            return false;
+        }
+
+        file.seekg(0, ios::beg);
+        string beforeContent(startPos, '\0');
+        file.read(&beforeContent[0], startPos);
+
+        file.seekg(startPos + messageLength);
+        string remainingContent;
+        getline(file, remainingContent, '\0');
+        file.close();
+
+        file.open(filename, ios::out);
+
+        if (!file.is_open())
+        {
+            return false;
+        }
+        file << beforeContent;
+        file.seekp(startPos);
+        file << message << remainingContent;
+        file.close();
+        updateIndexes(messageId, messageLength, message.length());
+        indexes1[messageId] = make_pair(startPos, message.length());
+        string response = "WROTE " + to_string(messageId) + '\n';
+        send(client_sock, response.c_str(), response.length(), 0);
+    }
+    close(client_sock);
+}
+
 void *handle_client(void *args)
 {
 
@@ -473,6 +546,59 @@ void *handle_client(void *args)
     }
     delete[] buffer;
     delete user;
+    return nullptr;
+}
+
+void *handle_server(void *args)
+{
+
+    cout << "connection accepted" << endl;
+    clientData *data = (clientData *)args;
+    int client_sock = data->socket;
+    bool isServer = data->isServer;
+    delete data;
+    string welcomMessage = "Connection establish succesfully! \n";
+    send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
+    const size_t bufferSize = 1024 * 1024;
+    char *buffer = new char[bufferSize];
+    pthread_rwlock_wrlock(&rwlock);
+    while (true)
+    {
+        // char buffer[1024];
+        int bytes_received = recv(client_sock, buffer, bufferSize - 1, 0);
+
+        if (bytes_received > 0)
+
+        {
+            buffer[bytes_received] = '\0'; // Null-terminate the received data
+            vector<string> bufferArray = bufferSplit(buffer);
+            if (bufferArray.size() > 0 && bufferArray.size() <= 3)
+            {
+                handle_server_commands(bufferArray, client_sock);
+            }
+            else
+            {
+                string message;
+                message = "ERROR entered command is incorrect.\n";
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+            // cout << buffer << endl;
+        }
+        else if (bytes_received == 0)
+        {
+            // Connection was closed by the client
+            cout << "Connection closed by the client" << endl;
+            break;
+        }
+        else
+        {
+            // An error occurred
+            perror("recv");
+            break;
+        }
+    }
+    delete[] buffer;
+    pthread_rwlock_unlock(&rwlock);
     return nullptr;
 }
 
@@ -586,7 +712,8 @@ int main()
     }
 
     cout << "Server listening on " << DESIRED_ADDRESS << ":" << port << endl;
-    ThreadPool pool = ThreadPool(thmax);
+    ThreadPool clientPool = ThreadPool(thmax);
+    ThreadPool serverPool = ThreadPool(serverAddresses.size());
     while (true)
     {
         sockaddr_in client_addr = {0};
@@ -609,14 +736,15 @@ int main()
             isServer = findServerIp(client_ip);
         cout << "Connected to client with IP address: " << client_ip << " wiht port: " << client_port << endl;
 
-        // int *pclient = new int;
-        // *pclient = client_sock;
         clientData *pclient = new clientData;
         pclient->isServer = isServer;
         pclient->socket = client_sock;
-
-        pool.enqueue([pclient]
-                     { handle_client(pclient); });
+        if (isServer)
+            clientPool.enqueue([pclient]
+                               { handle_client(pclient); });
+        else
+            serverPool.enqueue([pclient]
+                               { handle_client(pclient); });
     }
 
     close(sock);
