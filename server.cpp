@@ -200,6 +200,7 @@ bool syncWithServers(const string message)
 
     int sockets[serverAddresses.size()];
     int count = 0;
+    bool syncError = false;
 
     for (const string &serverAddress : serverAddresses)
     {
@@ -228,20 +229,30 @@ bool syncWithServers(const string message)
         {
             cerr << "Bind failed for server " << serverAddress << endl;
             close(sock);
-            return false;
+            syncError = true;
+            break;
         }
 
         if (connect(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
         {
             cerr << "Unable to connect to server " << serverAddress << endl;
             close(sock);
-            return false;
+            syncError = true;
+            break;
         }
         sockets[count] = sock;
         count++;
     }
 
-    bool syncError = false;
+    if (syncError)
+    {
+        for (size_t i = 0; i < serverAddresses.size(); i++)
+        {
+            close(sockets[i]);
+        }
+        return false;
+    }
+
     for (size_t i = 0; i < serverAddresses.size(); i++)
     {
 
@@ -256,6 +267,7 @@ bool syncWithServers(const string message)
         {
             cerr << "Error receiving response from " << serverAddresses[i] << endl;
             syncError = true;
+            break;
         }
     }
 
@@ -392,9 +404,10 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             string new_message = arg2;
             if (indexes1.find(messageId) != indexes1.end())
             {
-                string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
-                if (syncWithServers(message))
+                string message1 = to_string(messageId) + " " + user->getName() + ",\"" + new_message + "\"" + "\n";
+                if (syncWithServers(message1))
                 {
+                    string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
                     int startpos = indexes1[messageId].first;
                     int messageLength = indexes1[messageId].second;
                     bool replaced = user->replaceMessage(startpos, messageLength, message, config["BBFILE"]);
