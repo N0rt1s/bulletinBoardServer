@@ -457,7 +457,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
 void handle_server_commands(vector<string> buffer, int client_sock)
 {
     string arg1 = buffer[0];
-    string arg2 = buffer.size() > 2 ? buffer[2] : "";
+    string arg2 = buffer.size() > 1 ? buffer[1] : "";
     const string filename = config["BBFILE"];
     if (arg1 != "" && arg2 == "")
     {
