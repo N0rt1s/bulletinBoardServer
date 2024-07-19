@@ -17,7 +17,7 @@ public:
     void setName(std::string name);
     std::string getName();
     bool getIsServer();
-    int writeMessage(std::string message, std::string filename);
+    void writeMessage(std::string message, std::string filename);
     std::pair<std::string, std::string> readMessage(int pos, int length, std::string filename);
     bool replaceMessage(int startpos, int MessageLength, std::string message, std::string filename);
     ~bulletinBoard();

@@ -349,11 +349,11 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         cout << "it is " << (user->getIsServer() ? "" : "not ") << "a server" << endl;
         if (arg1 != "" && buffer.size() == 2)
         {
-            string message = "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
+            int messageId = indexes1.size() + 1;
+            string message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
             if (syncWithServers(message))
             {
-                int messageId = user->writeMessage(message, config["BBFILE"]);
-                message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
+                user->writeMessage(message, config["BBFILE"]);
                 long startPos = 0;
                 if (!indexes1.empty())
                 {
@@ -441,7 +441,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
 
 void handle_server_commands(vector<string> buffer, int client_sock)
 {
-    string arg1 = buffer.size() > 1 ? buffer[1] : "";
+    string arg1 = buffer[0];
     string arg2 = buffer.size() > 2 ? buffer[2] : "";
     const string filename = config["BBFILE"];
     if (arg1 != "" && arg2 == "")

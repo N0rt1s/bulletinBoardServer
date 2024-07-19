@@ -81,7 +81,7 @@ pair<string, string> bulletinBoard::readMessage(int pos, int length, string file
     return messagePair;
 }
 
-int bulletinBoard::writeMessage(string message, string filename)
+void bulletinBoard::writeMessage(string message, string filename)
 {
     ofstream outfile;
 
@@ -92,12 +92,11 @@ int bulletinBoard::writeMessage(string message, string filename)
         ofstream createFile(filename);
         createFile.close();
     }
-    int id = countLines(filename) + 1;
+    // int id = countLines(filename) + 1;
 
     outfile.open(filename, ios_base::app); // append instead of overwrite
-    outfile << id << message;
+    outfile << message;
     outfile.close();
-    return id;
 }
 
 bool bulletinBoard::replaceMessage(int startPos, int messageLength, string message, string fileName)
