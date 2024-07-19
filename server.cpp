@@ -761,10 +761,10 @@ int main()
         pclient->isServer = isServer;
         pclient->socket = client_sock;
         if (isServer)
-            clientPool.enqueue([pclient]
+            serverPool.enqueue([pclient]
                                { handle_client(pclient); });
         else
-            serverPool.enqueue([pclient]
+            clientPool.enqueue([pclient]
                                { handle_client(pclient); });
     }
 
