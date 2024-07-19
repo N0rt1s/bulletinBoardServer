@@ -4,26 +4,15 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
-
-class ThreadPool {
-public:
-    ThreadPool(size_t numThreads);
-    ~ThreadPool();
-    void enqueue(std::function<void()> task);
-
-private:
-    std::vector<std::thread> workers;
-    std::queue<std::function<void()>> tasks;
-
-    std::mutex queueMutex;
-    std::condition_variable condition;
-    bool stop;
-};
+#include "threadPool.h"
 
 // Constructor
-ThreadPool::ThreadPool(size_t numThreads) : stop(false) {
-    for (size_t i = 0; i < numThreads; ++i) {
-        workers.emplace_back([this] {
+ThreadPool::ThreadPool(size_t numThreads) : stop(false)
+{
+    for (size_t i = 0; i < numThreads; ++i)
+    {
+        workers.emplace_back([this]
+                             {
             while (true) {
                 std::function<void()> task;
 
@@ -36,29 +25,30 @@ ThreadPool::ThreadPool(size_t numThreads) : stop(false) {
                 }
 
                 task();
-            }
-        });
+            } });
     }
 }
 
 // Destructor
-ThreadPool::~ThreadPool() {
+ThreadPool::~ThreadPool()
+{
     {
         std::unique_lock<std::mutex> lock(queueMutex);
         stop = true;
     }
     condition.notify_all();
-    for (std::thread &worker : workers) {
+    for (std::thread &worker : workers)
+    {
         worker.join();
     }
 }
 
 // Add new task to the pool
-void ThreadPool::enqueue(std::function<void()> task) {
+void ThreadPool::enqueue(std::function<void()> task)
+{
     {
         std::unique_lock<std::mutex> lock(queueMutex);
         tasks.emplace(task);
     }
     condition.notify_one();
 }
-    

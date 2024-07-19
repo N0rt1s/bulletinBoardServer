@@ -8,7 +8,7 @@
 #include <cstring>
 #include <vector>
 #include "bulletinBoard.h"
-#include "threadPool.cpp"
+#include "threadPool.h"
 #include <regex>
 #include <csignal>
 #include <unordered_map>

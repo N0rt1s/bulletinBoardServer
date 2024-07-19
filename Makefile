@@ -8,7 +8,7 @@ CXXFLAGS = -pthread
 TARGET = bbserv
 
 # Source files
-SRCS = server.cpp bulletinBoard.cpp
+SRCS = server.cpp bulletinBoard.cpp threadPool.cpp
 
 # Default target
 all: $(TARGET)
