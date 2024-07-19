@@ -182,11 +182,9 @@ vector<string> bufferSplit(const char *buffer, bool isServer = false)
     }
     if (!tempbuffer.empty())
     {
-        if (isServer && tempbuffer.length() > 0)
-            bufferArray.push_back(tempbuffer);
-        else if (tempbuffer.length() > 0)
+        string lastbuffer = remove_char(remove_char(tempbuffer, '\r'), '\n');
+        if (lastbuffer.length() > 0)
         {
-            string lastbuffer = remove_char(remove_char(tempbuffer, '\r'), '\n');
             bufferArray.push_back(lastbuffer);
         }
     }
