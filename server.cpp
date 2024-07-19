@@ -147,7 +147,7 @@ unordered_map<int, pair<int, int>> createIndexes1(string filename)
     return indexMap;
 }
 
-vector<string> bufferSplit(const char *buffer)
+vector<string> bufferSplit(const char *buffer, bool isServer = false)
 {
     int i = 0;
     vector<string> bufferArray;
@@ -162,7 +162,7 @@ vector<string> bufferSplit(const char *buffer)
                 tempbuffer.clear();
             }
         }
-        else if (buffer[i] == '\"')
+        else if (buffer[i] == '\"' && !isServer)
         {
             tempbuffer.clear();
             i++;
@@ -182,9 +182,13 @@ vector<string> bufferSplit(const char *buffer)
     }
     if (!tempbuffer.empty())
     {
-        string lastbuffer = remove_char(remove_char(tempbuffer, '\r'), '\n');
-        if (lastbuffer.length() > 0)
+        if (isServer && tempbuffer.length() > 0)
+            bufferArray.push_back(tempbuffer);
+        else if (tempbuffer.length() > 0)
+        {
+            string lastbuffer = remove_char(remove_char(tempbuffer, '\r'), '\n');
             bufferArray.push_back(lastbuffer);
+        }
     }
     return bufferArray;
 }
@@ -458,7 +462,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
         int id = stoi(arg1.substr(0, arg1.find(",")));
 
         outfile.open(filename, ios_base::app);
-        outfile << arg1;
+        outfile << arg1 << "\n";
         outfile.close();
         long startPos = 0;
         if (!indexes1.empty())
@@ -592,7 +596,7 @@ void *handle_server(void *args)
 
         {
             buffer[bytes_received] = '\0'; // Null-terminate the received data
-            vector<string> bufferArray = bufferSplit(buffer);
+            vector<string> bufferArray = bufferSplit(buffer, true);
             if (bufferArray.size() > 0 && bufferArray.size() <= 3)
             {
                 handle_server_commands(bufferArray, client_sock);
