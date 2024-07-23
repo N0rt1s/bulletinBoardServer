@@ -493,6 +493,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
         int startPos = indexes1[messageId].first;
         int messageLength = indexes1[messageId].second;
         string message = to_string(messageId) + "," + new_message + "\n";
+        cout << message << endl;
         fstream file(filename, ios::in);
 
         if (!file.is_open())
@@ -504,7 +505,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
         string beforeContent(startPos, '\0');
         file.read(&beforeContent[0], startPos);
 
-        file.seekg(startPos + messageLength);
+        file.seekg(startPos + messageLength+1);
         string remainingContent;
         getline(file, remainingContent, '\0');
         file.close();
