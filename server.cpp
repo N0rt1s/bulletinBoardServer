@@ -482,7 +482,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
             startPos = lastEntry.first + lastEntry.second;
         }
 
-        indexes1[id] = make_pair(startPos, arg1.length());
+        indexes1[id] = make_pair(startPos, arg1.length()+1);
         string messageResponse = "WROTE " + to_string(id) + '\n';
         send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
     }
