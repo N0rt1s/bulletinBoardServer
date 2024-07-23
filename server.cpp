@@ -365,7 +365,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         {
             int messageId = indexes1.size() + 1;
             string message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
-            if (syncWithServers(message))
+            if (syncWithServers(to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\""))
             {
                 user->writeMessage(message, config["BBFILE"]);
                 long startPos = 0;
@@ -402,7 +402,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             string new_message = arg2;
             if (indexes1.find(messageId) != indexes1.end())
             {
-                string message1 = to_string(messageId) + " " + user->getName() + ",\"" + new_message + "\"" + "\n";
+                string message1 = to_string(messageId) + " " + user->getName() + ",\"" + new_message + "\"";
                 if (syncWithServers(message1))
                 {
                     string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
@@ -505,7 +505,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
         string beforeContent(startPos, '\0');
         file.read(&beforeContent[0], startPos);
 
-        file.seekg(startPos + messageLength+1);
+        file.seekg(startPos + messageLength);
         string remainingContent;
         getline(file, remainingContent, '\0');
         file.close();
