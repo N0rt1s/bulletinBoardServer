@@ -345,11 +345,11 @@ bool syncWithServers(const string message)
         {
             buffer[bytes_received] = '\0';
             cout << "Response from " << serverAddresses[i] << ": " << buffer << endl;
-            return false;
         }
         else
         {
             cerr << "Error receiving response from " << serverAddresses[i] << endl;
+            return false;
         }
 
         close(sockets[i]);
@@ -466,13 +466,11 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             try
             {
                 int messageId = stoi(arg1);
-                /* code */
-
                 string new_message = arg2;
                 if (indexes1.find(messageId) != indexes1.end())
                 {
                     string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
-                    if (syncWithServers(message))
+                    if (syncWithServers(to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\""))
                     {
                         int startpos = indexes1[messageId].first;
                         int messageLength = indexes1[messageId].second;
