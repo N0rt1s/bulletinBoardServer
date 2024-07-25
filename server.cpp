@@ -626,6 +626,12 @@ void *handle_client(void *args)
 
         if (bytes_received > 0)
         {
+            string rek = buffer;
+            if (rek == "QUIT" || rek == "\377\364\377\375\006")
+            {
+                // delete user;
+                close(client_sock);
+            }
             string filtered = filterNonPrintable(buffer);
             delete buffer;
             char *filteredbuffer = new char[filtered.size() + 1];
