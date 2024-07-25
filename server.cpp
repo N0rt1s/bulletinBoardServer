@@ -23,7 +23,7 @@
 #define DESIRED_ADDRESS "127.0.0.1"
 #define BBPORT 9000
 #define SYNCPORT 10000
-#define BUFSIZE 512
+#define BUFSIZE 2024
 #define THMAX 20
 #define DAEMON true
 
@@ -345,6 +345,7 @@ bool syncWithServers(const string message)
         {
             buffer[bytes_received] = '\0';
             cout << "Response from " << serverAddresses[i] << ": " << buffer << endl;
+            return false;
         }
         else
         {
@@ -618,16 +619,17 @@ void *handle_client(void *args)
     string welcomMessage = "Connection establish succesfully! \n" + helpMessage;
     send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
     const size_t bufferSize = 1024 * 1024;
-    char *buffer = new char[bufferSize];
     bulletinBoard *user = new bulletinBoard(isServer);
     while (true)
     {
+        char *buffer = new char[bufferSize];
         // char buffer[1024];
         int bytes_received = recv(client_sock, buffer, bufferSize - 1, 0);
 
         if (bytes_received > 0)
         {
             string filtered = filterNonPrintable(buffer);
+            delete buffer;
             char *filteredbuffer = new char[filtered.size() + 1];
             strcpy(filteredbuffer, filtered.c_str());
             filteredbuffer[filtered.size()] = '\0'; // Null-terminate the received data
@@ -658,7 +660,6 @@ void *handle_client(void *args)
             break;
         }
     }
-    delete[] buffer;
     delete user;
     return nullptr;
 }
