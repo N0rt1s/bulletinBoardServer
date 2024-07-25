@@ -11,6 +11,7 @@ public:
     ThreadPool(size_t numThreads);
     ~ThreadPool();
     void enqueue(std::function<void()> task);
+    void shutdown();
 
 private:
     std::vector<std::thread> workers;

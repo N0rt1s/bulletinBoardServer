@@ -17,6 +17,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <cctype>
+#include <atomic>
 
 #define DESIRED_ADDRESS "127.0.0.1"
 #define BBPORT 9000
@@ -26,6 +28,10 @@
 #define DAEMON true
 
 using namespace std;
+
+std::atomic<bool> running(true);
+ThreadPool *clientPool = nullptr;
+ThreadPool *serverPool = nullptr;
 unordered_map<string, string> config;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<int, int>> indexes1;
@@ -147,32 +153,35 @@ unordered_map<int, pair<int, int>> createIndexes1(string filename)
     return indexMap;
 }
 
+string filterNonPrintable(const string &command)
+{
+    string filtered;
+    for (char c : command)
+    {
+        if (isprint(c)) //|| c == '\n' || c == '\r')
+        {
+            filtered += c;
+        }
+    }
+    return filtered;
+}
+
 vector<string> bufferSplit(const char *buffer, bool isServer = false)
 {
     int i = 0;
     vector<string> bufferArray;
     string tempbuffer;
+    bool commandcheck = false;
     while (buffer[i] != '\0')
     {
-        if (buffer[i] == ' ')
+        if (buffer[i] == ' ' && !commandcheck)
         {
             if (!tempbuffer.empty())
             {
+                commandcheck = true;
                 bufferArray.push_back(tempbuffer);
                 tempbuffer.clear();
             }
-        }
-        else if (buffer[i] == '\"' && !isServer)
-        {
-            tempbuffer.clear();
-            i++;
-            while (buffer[i] != '\"')
-            {
-                tempbuffer.push_back(buffer[i]);
-                i++;
-            }
-            bufferArray.push_back(tempbuffer);
-            tempbuffer.clear();
         }
         else
         {
@@ -182,11 +191,14 @@ vector<string> bufferSplit(const char *buffer, bool isServer = false)
     }
     if (!tempbuffer.empty())
     {
-        string lastbuffer = remove_char(remove_char(tempbuffer, '\r'), '\n');
-        if (lastbuffer.length() > 0)
+        int splitIndex = tempbuffer.find("/");
+        if (splitIndex != -1)
         {
-            bufferArray.push_back(lastbuffer);
+            bufferArray.push_back(tempbuffer.substr(0, splitIndex));
+            bufferArray.push_back(tempbuffer.substr(splitIndex + 1));
         }
+        else
+            bufferArray.push_back(tempbuffer);
     }
     return bufferArray;
 }
@@ -336,17 +348,26 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         pthread_rwlock_rdlock(&rwlock);
         if (arg1 != "" && buffer.size() == 2)
         {
-            int messageId = stoi(arg1);
-            if (!indexes1.empty() && indexes1.find(messageId) != indexes1.end())
+            try
             {
-                pair<int, int> data = indexes1[messageId];
-                pair<string, string> message1 = user->readMessage(data.first, data.second, config["BBFILE"]);
-                string message = "MESSAGE " + to_string(messageId) + " " + message1.first + " || " + message1.second + "\n";
-                send(client_sock, message.c_str(), message.length(), 0);
+                int messageId = stoi(arg1);
+
+                if (!indexes1.empty() && indexes1.find(messageId) != indexes1.end())
+                {
+                    pair<int, int> data = indexes1[messageId];
+                    pair<string, string> message1 = user->readMessage(data.first, data.second, config["BBFILE"]);
+                    string message = "MESSAGE " + to_string(messageId) + " " + message1.first + " || " + message1.second + "\n";
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
+                else
+                {
+                    string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                    send(client_sock, message.c_str(), message.length(), 0);
+                }
             }
-            else
+            catch (exception e)
             {
-                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                string message = "UNKNOWN " + arg1 + " message not found.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
         }
@@ -398,39 +419,49 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         pthread_rwlock_wrlock(&rwlock);
         if (buffer.size() == 3)
         {
-            int messageId = stoi(arg1);
-            string new_message = arg2;
-            if (indexes1.find(messageId) != indexes1.end())
+            try
             {
-                string message1 = to_string(messageId) + " " + user->getName() + ",\"" + new_message + "\"";
-                if (syncWithServers(message1))
+                int messageId = stoi(arg1);
+                /* code */
+
+                string new_message = arg2;
+                if (indexes1.find(messageId) != indexes1.end())
                 {
-                    string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
-                    int startpos = indexes1[messageId].first;
-                    int messageLength = indexes1[messageId].second;
-                    bool replaced = user->replaceMessage(startpos, messageLength, message, config["BBFILE"]);
-                    if (replaced)
+                    string message1 = to_string(messageId) + " " + user->getName() + ",\"" + new_message + "\"";
+                    if (syncWithServers(message1))
                     {
-                        updateIndexes(messageId, messageLength, message.length());
-                        indexes1[messageId] = make_pair(startpos, message.length());
-                        string response = "WROTE " + to_string(messageId) + '\n';
-                        send(client_sock, response.c_str(), response.length(), 0);
+                        string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
+                        int startpos = indexes1[messageId].first;
+                        int messageLength = indexes1[messageId].second;
+                        bool replaced = user->replaceMessage(startpos, messageLength, message, config["BBFILE"]);
+                        if (replaced)
+                        {
+                            updateIndexes(messageId, messageLength, message.length());
+                            indexes1[messageId] = make_pair(startpos, message.length());
+                            string response = "WROTE " + to_string(messageId) + '\n';
+                            send(client_sock, response.c_str(), response.length(), 0);
+                        }
+                        else
+                        {
+                            string response = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+                            send(client_sock, response.c_str(), response.length(), 0);
+                        }
                     }
                     else
                     {
-                        string response = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+                        string response = "ERROR syncing servers.\n";
                         send(client_sock, response.c_str(), response.length(), 0);
                     }
                 }
                 else
                 {
-                    string response = "ERROR syncing servers.\n";
+                    string response = "UNKNOWN " + to_string(messageId) + " message not found.\n";
                     send(client_sock, response.c_str(), response.length(), 0);
                 }
             }
-            else
+            catch (const std::exception &e)
             {
-                string response = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                string response = "UNKNOWN " + arg1 + " message not found.\n";
                 send(client_sock, response.c_str(), response.length(), 0);
             }
         }
@@ -482,7 +513,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
             startPos = lastEntry.first + lastEntry.second;
         }
 
-        indexes1[id] = make_pair(startPos, arg1.length()+1);
+        indexes1[id] = make_pair(startPos, arg1.length() + 1);
         string messageResponse = "WROTE " + to_string(id) + '\n';
         send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
     }
@@ -554,8 +585,12 @@ void *handle_client(void *args)
 
         if (bytes_received > 0)
         {
-            buffer[bytes_received] = '\0'; // Null-terminate the received data
-            vector<string> bufferArray = bufferSplit(buffer);
+            string filtered = filterNonPrintable(buffer);
+            char *filteredbuffer = new char[filtered.size() + 1];
+            strcpy(filteredbuffer, filtered.c_str());
+            filteredbuffer[filtered.size()] = '\0'; // Null-terminate the received data
+            vector<string> bufferArray = bufferSplit(filteredbuffer);
+            delete filteredbuffer;
             if (bufferArray.size() > 0 && bufferArray.size() <= 3)
             {
                 handle_commands(bufferArray, user, client_sock);
@@ -639,10 +674,19 @@ void *handle_server(void *args)
     return nullptr;
 }
 
-void signalHandler(int signal)
+void signalHandler(int signum)
 {
-    cout << "Received signal " << signal << ", terminating the server." << endl;
-    exit(signal);
+    running = false;
+    if (clientPool)
+    {
+        clientPool->shutdown(); // Custom function to stop the thread pool
+    }
+    if (serverPool)
+    {
+        serverPool->shutdown(); // Custom function to stop the thread pool
+    }
+    cout << "Interrupt signal (" << signum << ") received. Cleaning up and exiting..." << endl;
+    exit(signum);
 }
 
 unordered_map<string, string> readConfig(const string &filename)
@@ -702,6 +746,8 @@ bool findServerIp(string ip)
 int main()
 {
     signal(SIGINT, signalHandler);
+    signal(SIGHUP, signalHandler);
+    signal(SIGQUIT, signalHandler);
     config = readConfig("bbserv.conf");
     if (config.find("BBFILE") == config.end())
     {
@@ -749,9 +795,9 @@ int main()
     }
 
     cout << "Server listening on " << DESIRED_ADDRESS << ":" << port << endl;
-    ThreadPool clientPool = ThreadPool(thmax);
-    ThreadPool serverPool = ThreadPool(serverAddresses.size());
-    while (true)
+    clientPool = new ThreadPool(thmax);
+    serverPool = new ThreadPool(serverAddresses.size());
+    while (running)
     {
         sockaddr_in client_addr = {0};
         socklen_t client_addr_size = sizeof(client_addr);
@@ -771,17 +817,17 @@ int main()
         bool isServer = false;
         if (syncport == client_port)
             isServer = findServerIp(client_ip);
-        cout << "Connected to client with IP address: " << client_ip << " wiht port: " << client_port << endl;
+        cout << "Connected to client with IP address: " << client_ip << " with port: " << client_port << endl;
 
         clientData *pclient = new clientData;
         pclient->isServer = isServer;
         pclient->socket = client_sock;
         if (isServer)
-            serverPool.enqueue([pclient]
-                               { handle_server(pclient); });
+            serverPool->enqueue([pclient]
+                                { handle_server(pclient); });
         else
-            clientPool.enqueue([pclient]
-                               { handle_client(pclient); });
+            clientPool->enqueue([pclient]
+                                { handle_client(pclient); });
     }
 
     close(sock);
