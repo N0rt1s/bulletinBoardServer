@@ -166,7 +166,7 @@ string filterNonPrintable(const string &command)
     return filtered;
 }
 
-vector<string> bufferSplit(const char *buffer, bool isServer = false)
+vector<string> bufferSplit(const char *buffer)
 {
     int i = 0;
     vector<string> bufferArray;
@@ -199,6 +199,49 @@ vector<string> bufferSplit(const char *buffer, bool isServer = false)
         }
         else
             bufferArray.push_back(tempbuffer);
+    }
+    return bufferArray;
+}
+
+vector<string> serverBufferSplit(const char *buffer)
+{
+    int i = 0;
+    vector<string> bufferArray;
+    string tempbuffer;
+    bool commandcheck = false;
+    while (buffer[i] != '\0')
+    {
+        if (buffer[i] == ',')
+        {
+            if (!tempbuffer.empty())
+            {
+                commandcheck = true;
+                bufferArray.push_back(tempbuffer);
+                tempbuffer.clear();
+            }
+        }
+        else if (buffer[i] == '\"')
+        {
+            tempbuffer.clear();
+            i++;
+            while (buffer[i] != '\"')
+            {
+                tempbuffer.push_back(buffer[i]);
+                i++;
+            }
+            bufferArray.push_back(tempbuffer);
+            tempbuffer.clear();
+        }
+        else
+        {
+            tempbuffer.push_back(buffer[i]);
+            i++;
+        }
+    }
+    if (!tempbuffer.empty())
+    {
+
+        bufferArray.push_back(tempbuffer);
     }
     return bufferArray;
 }
@@ -386,7 +429,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         {
             int messageId = indexes1.size() + 1;
             string message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
-            if (syncWithServers(to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\""))
+            if (syncWithServers(user->getName() + ",\"" + arg1 + "\""))
             {
                 user->writeMessage(message, config["BBFILE"]);
                 long startPos = 0;
@@ -427,10 +470,9 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 string new_message = arg2;
                 if (indexes1.find(messageId) != indexes1.end())
                 {
-                    string message1 = to_string(messageId) + " " + user->getName() + ",\"" + new_message + "\"";
-                    if (syncWithServers(message1))
+                    string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
+                    if (syncWithServers(message))
                     {
-                        string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
                         int startpos = indexes1[messageId].first;
                         int messageLength = indexes1[messageId].second;
                         bool replaced = user->replaceMessage(startpos, messageLength, message, config["BBFILE"]);
@@ -489,8 +531,9 @@ void handle_server_commands(vector<string> buffer, int client_sock)
 {
     string arg1 = buffer[0];
     string arg2 = buffer.size() > 1 ? buffer[1] : "";
+    string arg3 = buffer.size() > 2 ? buffer[2] : "";
     const string filename = config["BBFILE"];
-    if (arg1 != "" && arg2 == "")
+    if (arg1 != "" && arg2 != "" && arg3 == "")
     {
         ofstream outfile;
 
@@ -501,10 +544,10 @@ void handle_server_commands(vector<string> buffer, int client_sock)
             ofstream createFile(filename);
             createFile.close();
         }
-        int id = stoi(arg1.substr(0, arg1.find(",")));
+        int id = indexes1.size() + 1;
 
         outfile.open(filename, ios_base::app);
-        outfile << arg1 << "\n";
+        outfile << id << "," << arg1 << "," << arg2 << "\n";
         outfile.close();
         long startPos = 0;
         if (!indexes1.empty())
@@ -520,10 +563,9 @@ void handle_server_commands(vector<string> buffer, int client_sock)
     else
     {
         int messageId = stoi(arg1);
-        string new_message = arg2;
         int startPos = indexes1[messageId].first;
         int messageLength = indexes1[messageId].second;
-        string message = to_string(messageId) + "," + new_message + "\n";
+        string message = to_string(messageId) + "," + arg2 + "," + arg3 + "\n";
         cout << message << endl;
         fstream file(filename, ios::in);
 
@@ -643,7 +685,7 @@ void *handle_server(void *args)
 
         {
             buffer[bytes_received] = '\0'; // Null-terminate the received data
-            vector<string> bufferArray = bufferSplit(buffer, true);
+            vector<string> bufferArray = serverBufferSplit(buffer);
             if (bufferArray.size() > 0 && bufferArray.size() <= 3)
             {
                 handle_server_commands(bufferArray, client_sock);
