@@ -98,7 +98,7 @@ void updateIndexes(int messageId, int oldLength, int newLength)
 {
     int lengthDiff = newLength > oldLength ? newLength - oldLength : oldLength - newLength;
 
-    for (int i = messageId + 1; i < indexes1.size(); i++)
+    for (int i = messageId + 1; i <= indexes1.size(); i++)
     {
         if (newLength > oldLength)
             indexes1[i].first += lengthDiff;
@@ -544,9 +544,9 @@ void handle_server_commands(vector<string> buffer, int client_sock)
             createFile.close();
         }
         int id = indexes1.size() + 1;
-
+        string message = to_string(id) + "," + arg1 + ",\"" + arg2 + "\"\n";
         outfile.open(filename, ios_base::app);
-        outfile << id << "," << arg1 << ",\"" << arg2 << "\"\n";
+        outfile << message;
         outfile.close();
         long startPos = 0;
         if (!indexes1.empty())
@@ -555,7 +555,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
             startPos = lastEntry.first + lastEntry.second;
         }
 
-        indexes1[id] = make_pair(startPos, arg1.length() + 1);
+        indexes1[id] = make_pair(startPos, message.length());
         string messageResponse = "WROTE " + to_string(id) + '\n';
         send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
     }
