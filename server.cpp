@@ -235,8 +235,8 @@ vector<string> serverBufferSplit(const char *buffer)
         else
         {
             tempbuffer.push_back(buffer[i]);
-            i++;
         }
+        i++;
     }
     if (!tempbuffer.empty())
     {
@@ -547,7 +547,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
         int id = indexes1.size() + 1;
 
         outfile.open(filename, ios_base::app);
-        outfile << id << "," << arg1 << "," << arg2 << "\n";
+        outfile << id << "," << arg1 << ",\"" << arg2 << "\"\n";
         outfile.close();
         long startPos = 0;
         if (!indexes1.empty())
@@ -669,7 +669,6 @@ void *handle_server(void *args)
     cout << "connection accepted" << endl;
     clientData *data = (clientData *)args;
     int client_sock = data->socket;
-    bool isServer = data->isServer;
     delete data;
     string welcomMessage = "Connection establish succesfully! \n";
     send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
