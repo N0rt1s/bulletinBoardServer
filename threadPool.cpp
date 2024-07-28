@@ -53,14 +53,19 @@ void ThreadPool::enqueue(std::function<void()> task)
     condition.notify_one();
 }
 
-void ThreadPool::shutdown() {
+void ThreadPool::shutdown()
+{
     {
         std::unique_lock<std::mutex> lock(queueMutex);
         stop = true;
     }
     condition.notify_all();
-    for (std::thread &worker : workers) {
-        if (worker.joinable()) {
+
+    for (std::thread &worker : workers)
+    {
+        pthread_cancel(worker.native_handle());
+        if (worker.joinable())
+        {
             worker.join();
         }
     }

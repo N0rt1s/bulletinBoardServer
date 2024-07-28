@@ -26,10 +26,12 @@
 #define BUFSIZE 2024
 #define THMAX 20
 #define DAEMON true
+#define DELAY false
 
 using namespace std;
 
 std::atomic<bool> running(true);
+bool delay = DELAY;
 ThreadPool *clientPool = nullptr;
 ThreadPool *serverPool = nullptr;
 unordered_map<string, string> config;
@@ -395,11 +397,12 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             try
             {
                 int messageId = stoi(arg1);
-
                 if (!indexes1.empty() && indexes1.find(messageId) != indexes1.end())
                 {
                     pair<int, int> data = indexes1[messageId];
                     pair<string, string> message1 = user->readMessage(data.first, data.second, config["BBFILE"]);
+                    if (delay)
+                        sleep(3);
                     string message = "MESSAGE " + to_string(messageId) + " " + message1.first + " || " + message1.second + "\n";
                     send(client_sock, message.c_str(), message.length(), 0);
                 }
@@ -434,6 +437,8 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             {
                 user->writeMessage(message, config["BBFILE"]);
                 long startPos = 0;
+                if (delay)
+                    sleep(6);
                 if (!indexes1.empty())
                 {
                     auto lastEntry = indexes1[indexes1.size()]; // Get the last entry
@@ -479,6 +484,8 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                         {
                             updateIndexes(messageId, messageLength, message.length());
                             indexes1[messageId] = make_pair(startpos, message.length());
+                            if (delay)
+                                sleep(6);
                             string response = "WROTE " + to_string(messageId) + '\n';
                             send(client_sock, response.c_str(), response.length(), 0);
                         }
@@ -807,6 +814,9 @@ int main()
     size_t thmax = config.find("THMAX") == config.end() ? THMAX : stoi(config["THMAX"]);
     bool daemon = config.find("DAEMON") == config.end() ? DAEMON : config["DAEMON"] == "true" ? true
                                                                                               : false;
+
+    delay = config.find("DELAY") == config.end() ? DELAY : config["DELAY"] == "true" ? true
+                                                                                     : false;
     int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
 
     if (daemon)
