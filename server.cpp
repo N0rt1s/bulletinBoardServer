@@ -618,8 +618,8 @@ void *handle_client(void *args)
     string helpMessage =
         "USER    <name>                    Set the name\n"
         "READ    <messageId>               Read a message using Message Id\n"
-        "WRITE   \"<message>\"               Write a message to bulletin board\n"
-        "REPLACE <messageId> \"<message>\"   Replace a message with a new one\n"
+        "WRITE   <message>               Write a message to bulletin board\n"
+        "REPLACE <messageId>/<message>   Replace a message with a new one\n"
         "QUIT                              Quit from the server\n";
     string welcomMessage = "Connection establish succesfully! \n" + helpMessage;
     send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
