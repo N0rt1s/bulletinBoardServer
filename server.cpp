@@ -27,11 +27,13 @@
 #define THMAX 20
 #define DAEMON true
 #define DELAY false
+#define DEBUG false
 
 using namespace std;
 
 std::atomic<bool> running(true);
 bool delay = DELAY;
+bool debug = DEBUG;
 ThreadPool *clientPool = nullptr;
 ThreadPool *serverPool = nullptr;
 unordered_map<string, string> config;
@@ -374,6 +376,8 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
             if (regex_match(arg1, pattern))
             {
                 user->setName(arg1);
+                if (debug)
+                    cout << "CLient " << client_sock << ": Username changed." << endl;
                 string message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
                 send(client_sock, message.c_str(), message.length(), 0);
             }
@@ -396,6 +400,9 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
         {
             try
             {
+                if (debug)
+                    cout << "CLient " << client_sock << ": Beginning read operation." << endl;
+
                 int messageId = stoi(arg1);
                 if (!indexes1.empty() && indexes1.find(messageId) != indexes1.end())
                 {
@@ -404,11 +411,15 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                     if (delay)
                         sleep(3);
                     string message = "MESSAGE " + to_string(messageId) + " " + message1.first + " || " + message1.second + "\n";
+                    if (debug)
+                        cout << "MESSAGE " << to_string(messageId) << " found." << endl;
                     send(client_sock, message.c_str(), message.length(), 0);
                 }
                 else
                 {
                     string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                    if (debug)
+                        cout << message;
                     send(client_sock, message.c_str(), message.length(), 0);
                 }
             }
@@ -428,9 +439,10 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
     else if (command == "WRITE")
     {
         pthread_rwlock_wrlock(&rwlock);
-        cout << "it is " << (user->getIsServer() ? "" : "not ") << "a server" << endl;
         if (arg1 != "" && buffer.size() == 2)
         {
+            if (debug)
+                cout << "Client " << client_sock << ": Beginning write operation." << endl;
             int messageId = indexes1.size() + 1;
             string message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
             if (syncWithServers(user->getName() + ",\"" + arg1 + "\""))
@@ -447,11 +459,15 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
 
                 indexes1[messageId] = make_pair(startPos, message.length());
                 string messageResponse = "WROTE " + to_string(messageId) + '\n';
+                if (debug)
+                    cout << messageResponse;
                 send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
             }
             else
             {
                 string messageResponse = "ERROR syncing servers.\n";
+                if (debug)
+                    cout << messageResponse;
                 send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
             }
         }
@@ -487,17 +503,23 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                             if (delay)
                                 sleep(6);
                             string response = "WROTE " + to_string(messageId) + '\n';
+                            if (debug)
+                                cout << response;
                             send(client_sock, response.c_str(), response.length(), 0);
                         }
                         else
                         {
                             string response = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
+                            if (debug)
+                                cout << response;
                             send(client_sock, response.c_str(), response.length(), 0);
                         }
                     }
                     else
                     {
                         string response = "ERROR syncing servers.\n";
+                        if (debug)
+                            cout << response;
                         send(client_sock, response.c_str(), response.length(), 0);
                     }
                 }
@@ -523,11 +545,15 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
     else if (command == "QUIT" || command == "\377\364\377\375\006")
     {
         // delete user;
+        if (debug)
+            cout << "Client " << client_sock << " disconnected.";
         close(client_sock);
     }
     else
     {
         string message = "ERROR entered command is incorrect.\n";
+        if (debug)
+            cout << message;
         send(client_sock, message.c_str(), message.length(), 0);
     }
     return 1;
@@ -610,7 +636,8 @@ void handle_server_commands(vector<string> buffer, int client_sock)
 void *handle_client(void *args)
 {
 
-    cout << "connection accepted" << endl;
+    if (debug)
+        cout << "connection accepted" << endl;
     clientData *data = (clientData *)args;
     int client_sock = data->socket;
     bool isServer = data->isServer;
@@ -661,13 +688,15 @@ void *handle_client(void *args)
         else if (bytes_received == 0)
         {
             // Connection was closed by the client
-            cout << "Connection closed by the client" << endl;
+            if (debug)
+                cout << "Connection closed by the client" << endl;
             break;
         }
         else
         {
             // An error occurred
-            perror("recv");
+            if (debug)
+                perror("recv");
             break;
         }
     }
@@ -804,7 +833,8 @@ int main()
     config = readConfig("bbserv.conf");
     if (config.find("BBFILE") == config.end())
     {
-        cerr << "Could not find the BBFILE in the configuration. Add the BBFILE=<your BB file> in bbserv.conf file" << endl;
+        if (debug)
+            cerr << "Could not find the BBFILE in the configuration. Add the BBFILE=<your BB file> in bbserv.conf file" << endl;
         return 1;
     }
 
@@ -817,6 +847,8 @@ int main()
 
     delay = config.find("DELAY") == config.end() ? DELAY : config["DELAY"] == "true" ? true
                                                                                      : false;
+    debug = config.find("DEBUG") == config.end() ? DEBUG : config["DEBUG"] == "true" ? true
+                                                                                     : false;
     int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
 
     if (daemon)
@@ -827,7 +859,8 @@ int main()
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == -1)
     {
-        cerr << "Unable to create socket" << endl;
+        if (debug)
+            cerr << "Unable to create socket" << endl;
         return 1;
     }
 
@@ -838,19 +871,22 @@ int main()
 
     if (bind(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
     {
-        cerr << "Error binding socket" << endl;
+        if (debug)
+            cerr << "Error binding socket" << endl;
         close(sock);
         return 1;
     }
 
     if (listen(sock, 20) == -1)
     {
-        cerr << "Error listening on socket" << endl;
+        if (debug)
+            cerr << "Error listening on socket" << endl;
         close(sock);
         return 1;
     }
 
-    cout << "Server listening on " << DESIRED_ADDRESS << ":" << port << endl;
+    if (debug)
+        cout << "Server listening on " << DESIRED_ADDRESS << ":" << port << endl;
     clientPool = new ThreadPool(thmax);
     serverPool = new ThreadPool(serverAddresses.size());
     while (running)
@@ -861,7 +897,8 @@ int main()
 
         if (client_sock == -1)
         {
-            cerr << "Error accepting client connection" << endl;
+            if (debug)
+                cerr << "Error accepting client connection" << endl;
             continue;
         }
         getpeername(sock, (struct sockaddr *)&client_addr, &client_addr_size);
@@ -873,7 +910,8 @@ int main()
         bool isServer = false;
         if (syncport == client_port)
             isServer = findServerIp(client_ip);
-        cout << "Connected to client with IP address: " << client_ip << " with port: " << client_port << endl;
+        if (debug)
+            cout << "Connected to client with IP address: " << client_ip << " with port: " << client_port << endl;
 
         clientData *pclient = new clientData;
         pclient->isServer = isServer;
