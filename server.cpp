@@ -825,12 +825,27 @@ bool findServerIp(string ip)
     return false;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+    string confFile = "bbserv.conf";
+    if (argc > 2)
+    {
+        cout << "more then 1 argument is given" << endl;
+        return 1;
+    }
+    else if (argc == 2)
+    {
+        confFile = argv[1];
+    }
     signal(SIGINT, signalHandler);
     signal(SIGHUP, signalHandler);
     signal(SIGQUIT, signalHandler);
-    config = readConfig("bbserv.conf");
+    config = readConfig(confFile);
+    if (config.size() == 0)
+    {
+        cerr << "Could not find configuration file or some error occured in configuration file" << endl;
+        return 1;
+    }
     if (config.find("BBFILE") == config.end())
     {
         if (debug)
