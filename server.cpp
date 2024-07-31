@@ -250,7 +250,7 @@ vector<string> serverBufferSplit(const char *buffer)
     return bufferArray;
 }
 
-bool syncWithServers(const string message)
+bool syncWithServers(string message)
 {
 
     int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
@@ -309,6 +309,7 @@ bool syncWithServers(const string message)
         }
         return false;
     }
+    cout << "precommit phase done" << endl;
 
     for (size_t i = 0; i < serverAddresses.size(); i++)
     {
@@ -318,7 +319,7 @@ bool syncWithServers(const string message)
         if (bytes_received > 0)
         {
             buffer[bytes_received] = '\0';
-            cout << "Response from " << serverAddresses[i] << ": " << buffer << endl;
+            cout << "Response from " << serverAddresses[i] << " recieved" << endl;
         }
         else
         {
@@ -336,7 +337,10 @@ bool syncWithServers(const string message)
         }
         return false;
     }
+    cout << "commit phase done" << endl;
+    cout << "sending message to servers" << endl;
 
+    std::vector<int> sentSockets;
     for (size_t i = 0; i < serverAddresses.size(); i++)
     {
 
@@ -347,15 +351,31 @@ bool syncWithServers(const string message)
         int bytes_received = recv(sockets[i], buffer, BUFSIZE - 1, 0);
         if (bytes_received > 0)
         {
+            sentSockets.push_back(sockets[i]);
             buffer[bytes_received] = '\0';
             cout << "Response from " << serverAddresses[i] << ": " << buffer << endl;
         }
         else
         {
             cerr << "Error receiving response from " << serverAddresses[i] << endl;
-            return false;
+            syncError = false;
+            break;
         }
 
+        // close(sockets[i]);
+    }
+
+    if (syncError)
+    {
+        message = "rollback" + message;
+        for (const int &sock : sentSockets)
+        {
+            send(sock, message.c_str(), message.length(), 0);
+        }
+    }
+
+    for (size_t i = 0; i < serverAddresses.size(); i++)
+    {
         close(sockets[i]);
     }
 
@@ -565,7 +585,29 @@ void handle_server_commands(vector<string> buffer, int client_sock)
     string arg2 = buffer.size() > 1 ? buffer[1] : "";
     string arg3 = buffer.size() > 2 ? buffer[2] : "";
     const string filename = config["BBFILE"];
-    if (arg1 != "" && arg2 != "" && arg3 == "")
+    if (arg1 == "rollback")
+    {
+        if (arg1 != "" && arg2 != "" && arg3 == "")
+        {
+            int messageId = indexes1.size();
+            int startPos = indexes1[messageId].first;
+            std::ofstream file(filename, std::ios::in | std::ios::out);
+            if (!file.is_open())
+            {
+                std::cerr << "Could not open the file for writing!" << std::endl;
+                return;
+            }
+
+            file.seekp(startPos - 1 == -1 ? 0 : startPos);
+            file.put('\0'); // Optional: to ensure the file is truncated correctly
+            file.close();
+            indexes1.erase(messageId);
+        }
+        else
+        {
+        }
+    }
+    else if (arg1 != "" && arg2 != "" && arg3 == "")
     {
         ofstream outfile;
 
@@ -767,8 +809,21 @@ void signalHandler(int signum)
     {
         serverPool->shutdown(); // Custom function to stop the thread pool
     }
-    cout << "Interrupt signal (" << signum << ") received. Cleaning up and exiting..." << endl;
-    exit(signum);
+    if (signum == SIGUSR1)
+    {
+        printf("Received SIGUSR1, restarting program...\n");
+        // Restart the program by using exec
+        execl("./a.out", "./a.out", NULL);
+        // If execl fails
+        perror("execl");
+        exit(EXIT_FAILURE);
+    }
+    else
+    {
+
+        cout << "Interrupt signal (" << signum << ") received. Cleaning up and exiting..." << endl;
+        exit(signum);
+    }
 }
 
 unordered_map<string, string> readConfig(const string &filename)
