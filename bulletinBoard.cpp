@@ -5,7 +5,7 @@
 
 using namespace std;
 
-bulletinBoard::bulletinBoard(bool server) : name("Anonymous"), isServer(server) {}
+bulletinBoard::bulletinBoard() : name("Anonymous") {}
 
 // bulletinBoard::bulletinBoard(int client_socket) : name("Anonymous"), client_sock(client_socket) {}
 
@@ -17,11 +17,6 @@ void bulletinBoard::setName(string username)
 string bulletinBoard::getName()
 {
     return this->name;
-}
-
-bool bulletinBoard::getIsServer()
-{
-    return this->isServer;
 }
 
 pair<string, string> bulletinBoard::readMessage(int pos, int length, string filename)

@@ -251,7 +251,7 @@ vector<string> serverBufferSplit(const char *buffer)
     return bufferArray;
 }
 
-bool syncWithServers(string message)
+bool syncWithServers(string message, string command)
 {
 
     // int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
@@ -265,7 +265,8 @@ bool syncWithServers(string message)
         int sock = socket(AF_INET, SOCK_STREAM, 0);
         if (sock == -1)
         {
-            cerr << "Unable to create socket for server " << serverAddress << endl;
+            if (debug)
+                cerr << "Unable to create socket for server " << serverAddress << endl;
             return false;
         }
         string po = serverAddress.substr(serverAddress.find(",") + 1);
@@ -278,7 +279,8 @@ bool syncWithServers(string message)
 
         if (connect(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
         {
-            cerr << "Unable to connect to server " << serverAddress << endl;
+            if (debug)
+                cerr << "Unable to connect to server " << serverAddress << endl;
             close(sock);
             syncError = true;
             break;
@@ -295,7 +297,8 @@ bool syncWithServers(string message)
         }
         return false;
     }
-    cout << "precommit phase done" << endl;
+    if (debug)
+        cout << "precommit phase done" << endl;
 
     for (size_t i = 0; i < serverAddresses.size(); i++)
     {
@@ -305,11 +308,13 @@ bool syncWithServers(string message)
         if (bytes_received > 0)
         {
             buffer[bytes_received] = '\0';
-            cout << "Response from " << serverAddresses[i] << " recieved" << endl;
+            if (debug)
+                cout << "Response from " << serverAddresses[i] << " recieved" << endl;
         }
         else
         {
-            cerr << "Error receiving response from " << serverAddresses[i] << endl;
+            if (debug)
+                cerr << "Error receiving response from " << serverAddresses[i] << endl;
             syncError = true;
             break;
         }
@@ -323,8 +328,9 @@ bool syncWithServers(string message)
         }
         return false;
     }
-    cout << "commit phase done" << endl;
-    cout << "sending message to servers" << endl;
+    if (debug)
+        cout << "commit phase done" << endl
+             << "sending message to servers" << endl;
 
     std::vector<int> sentSockets;
     for (size_t i = 0; i < serverAddresses.size(); i++)
@@ -339,21 +345,33 @@ bool syncWithServers(string message)
         {
             sentSockets.push_back(sockets[i]);
             buffer[bytes_received] = '\0';
-            cout << "Response from " << serverAddresses[i] << ": " << buffer << endl;
+            if (debug)
+                cout << "Response from " << serverAddresses[i] << ": " << buffer << endl;
         }
         else
         {
-            cerr << "Error receiving response from " << serverAddresses[i] << endl;
+            if (debug)
+                cerr << "Error receiving response from " << serverAddresses[i] << endl;
             syncError = true;
             break;
         }
 
         // close(sockets[i]);
     }
-
+    // to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\""
     if (syncError)
     {
-        message = "rollback," + message;
+        if (debug)
+            cout << "an error occured, rolling back changes" << endl;
+        if (command == "write")
+            message = "rollback," + message;
+        else
+        {
+            pair<int, int> data = indexes1[stoi(message.substr(0, message.find(',')))];
+
+            pair<string, string> message1 = bulletinBoard::readMessage(data.first, data.second, config["BBFILE"]);
+            message = message.substr(0, message.find(',')) + "," + message1.first + ",\"" + message1.second + "\"";
+        }
         for (const int &sock : sentSockets)
         {
             send(sock, message.c_str(), message.length(), 0);
@@ -413,7 +431,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 if (!indexes1.empty() && indexes1.find(messageId) != indexes1.end())
                 {
                     pair<int, int> data = indexes1[messageId];
-                    pair<string, string> message1 = user->readMessage(data.first, data.second, config["BBFILE"]);
+                    pair<string, string> message1 = bulletinBoard::readMessage(data.first, data.second, config["BBFILE"]);
                     if (delay)
                         sleep(3);
                     string message = "MESSAGE " + to_string(messageId) + " " + message1.first + " || " + message1.second + "\n";
@@ -451,7 +469,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 cout << "Client " << client_sock << ": Beginning write operation." << endl;
             int messageId = indexes1.size() + 1;
             string message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
-            if (syncWithServers(user->getName() + ",\"" + arg1 + "\""))
+            if (syncWithServers(user->getName() + ",\"" + arg1 + "\"", "write"))
             {
                 user->writeMessage(message, config["BBFILE"]);
                 long startPos = 0;
@@ -497,7 +515,7 @@ int handle_commands(vector<string> buffer, bulletinBoard *user, int client_sock)
                 if (indexes1.find(messageId) != indexes1.end())
                 {
                     string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
-                    if (syncWithServers(to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\""))
+                    if (syncWithServers(to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"", "replace"))
                     {
                         int startpos = indexes1[messageId].first;
                         int messageLength = indexes1[messageId].second;
@@ -686,7 +704,7 @@ void *handle_client(void *args)
     string welcomMessage = "Connection establish succesfully! \n" + helpMessage;
     send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
     const size_t bufferSize = 1024 * 1024;
-    bulletinBoard *user = new bulletinBoard(isServer);
+    bulletinBoard *user = new bulletinBoard();
     while (true)
     {
         char *buffer = new char[bufferSize];
