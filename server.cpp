@@ -344,7 +344,7 @@ bool syncWithServers(string message)
         else
         {
             cerr << "Error receiving response from " << serverAddresses[i] << endl;
-            syncError = false;
+            syncError = true;
             break;
         }
 
@@ -658,7 +658,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
         string response = "WROTE " + to_string(messageId) + '\n';
         send(client_sock, response.c_str(), response.length(), 0);
     }
-    close(client_sock);
+    // close(client_sock);
 }
 
 void *handle_client(void *args)
