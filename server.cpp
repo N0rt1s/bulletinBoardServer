@@ -577,16 +577,22 @@ void handle_server_commands(vector<string> buffer, int client_sock)
         {
             int messageId = indexes1.size();
             int startPos = indexes1[messageId].first;
-            std::ofstream file(filename, std::ios::in | std::ios::out);
-            if (!file.is_open())
+            int fd = open(filename.c_str(), O_RDWR);
+            if (fd == -1)
             {
                 std::cerr << "Could not open the file for writing!" << std::endl;
                 return;
             }
 
-            file.seekp(startPos - 1 == -1 ? 0 : startPos);
-            file.put('\0'); // Optional: to ensure the file is truncated correctly
-            file.close();
+            // Truncate the file at the specified position
+            if (ftruncate(fd, startPos) == -1)
+            {
+                std::cerr << "Could not truncate the file!" << std::endl;
+                close(fd);
+                return;
+            }
+
+            close(fd);
             indexes1.erase(messageId);
         }
         else
