@@ -570,10 +570,11 @@ void handle_server_commands(vector<string> buffer, int client_sock)
     string arg1 = buffer[0];
     string arg2 = buffer.size() > 1 ? buffer[1] : "";
     string arg3 = buffer.size() > 2 ? buffer[2] : "";
+    string arg4 = buffer.size() > 3 ? buffer[3] : "";
     const string filename = config["BBFILE"];
     if (arg1 == "rollback")
     {
-        if (arg1 != "" && arg2 != "" && arg3 == "")
+        if (arg1 != "" && arg2 != "" && arg3 != "" && arg4 == "")
         {
             int messageId = indexes1.size();
             int startPos = indexes1[messageId].first;
