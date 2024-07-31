@@ -367,7 +367,7 @@ bool syncWithServers(string message)
 
     if (syncError)
     {
-        message = "rollback" + message;
+        message = "rollback," + message;
         for (const int &sock : sentSockets)
         {
             send(sock, message.c_str(), message.length(), 0);
