@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <cctype>
 #include <atomic>
+#include <thread>
 
 #define DESIRED_ADDRESS "127.0.0.1"
 #define BBPORT 9000
@@ -253,7 +254,7 @@ vector<string> serverBufferSplit(const char *buffer)
 bool syncWithServers(string message)
 {
 
-    int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
+    // int syncport = config.find("SYNCPORT") == config.end() ? SYNCPORT : stoi(config["SYNCPORT"]);
 
     int sockets[serverAddresses.size()];
     int count = 0;
@@ -274,21 +275,6 @@ bool syncWithServers(string message)
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port); // Assume same port for simplicity, modify if needed
         addr.sin_addr.s_addr = inet_addr(address.c_str());
-
-        // Prepare local address structure
-        sockaddr_in localAddr = {0};
-        localAddr.sin_family = AF_INET;
-        localAddr.sin_port = htons(syncport);          // Use the same local port for all connections
-        localAddr.sin_addr.s_addr = htonl(INADDR_ANY); // Bind to any available local address
-
-        // Bind socket to local port
-        if (bind(sock, (sockaddr *)&localAddr, sizeof(localAddr)) == -1)
-        {
-            cerr << "Bind failed for server " << serverAddress << endl;
-            close(sock);
-            syncError = true;
-            break;
-        }
 
         if (connect(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
         {
@@ -880,6 +866,74 @@ bool findServerIp(string ip)
     return false;
 }
 
+void startServer(int port, const std::string &purpose)
+{
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == -1)
+    {
+        if (debug)
+            cerr << "Unable to create socket" << endl;
+        return;
+    }
+
+    sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = inet_addr(DESIRED_ADDRESS);
+
+    if (bind(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
+    {
+        if (debug)
+            cerr << "Error binding socket" << endl;
+        close(sock);
+        return;
+    }
+
+    if (listen(sock, 20) == -1)
+    {
+        if (debug)
+            cerr << "Error listening on socket" << endl;
+        close(sock);
+        return;
+    }
+
+    if (debug)
+        cout << "Server listening for " << purpose << "s on" << DESIRED_ADDRESS << ":" << port << endl;
+
+    while (running)
+    {
+        sockaddr_in client_addr = {0};
+        socklen_t client_addr_size = sizeof(client_addr);
+        int client_sock = accept(sock, (sockaddr *)&client_addr, &client_addr_size);
+
+        if (client_sock == -1)
+        {
+            if (debug)
+                cerr << "Error accepting client connection" << endl;
+            continue;
+        }
+        getpeername(sock, (struct sockaddr *)&client_addr, &client_addr_size);
+
+        char client_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
+        int client_port = ntohs(client_addr.sin_port);
+        if (debug)
+            cout << "Connected to client with IP address: " << client_ip << " with port: " << client_port << endl;
+
+        clientData *pclient = new clientData;
+        pclient->isServer = 1;
+        pclient->socket = client_sock;
+        if (purpose == "server")
+            serverPool->enqueue([pclient]
+                                { handle_server(pclient); });
+        else
+            clientPool->enqueue([pclient]
+                                { handle_client(pclient); });
+    }
+
+    close(sock);
+}
+
 int main(int argc, char *argv[])
 {
     string confFile = "bbserv.conf";
@@ -910,7 +964,7 @@ int main(int argc, char *argv[])
 
     // indexes = createIndexes(config["BBFILE"]);
     indexes1 = createIndexes1(config["BBFILE"]);
-    uint16_t port = config.find("BBPORT") == config.end() ? BBPORT : stoi(config["BBPORT"]);
+    uint16_t bbport = config.find("BBPORT") == config.end() ? BBPORT : stoi(config["BBPORT"]);
     size_t thmax = config.find("THMAX") == config.end() ? THMAX : stoi(config["THMAX"]);
     bool daemon = config.find("DAEMON") == config.end() ? DAEMON : config["DAEMON"] == "true" ? true
                                                                                               : false;
@@ -926,74 +980,18 @@ int main(int argc, char *argv[])
         daemonize();
     }
 
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1)
-    {
-        if (debug)
-            cerr << "Unable to create socket" << endl;
-        return 1;
-    }
-
-    sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = inet_addr(DESIRED_ADDRESS);
-
-    if (bind(sock, (sockaddr *)&addr, sizeof(addr)) == -1)
-    {
-        if (debug)
-            cerr << "Error binding socket" << endl;
-        close(sock);
-        return 1;
-    }
-
-    if (listen(sock, 20) == -1)
-    {
-        if (debug)
-            cerr << "Error listening on socket" << endl;
-        close(sock);
-        return 1;
-    }
-
-    if (debug)
-        cout << "Server listening on " << DESIRED_ADDRESS << ":" << port << endl;
     clientPool = new ThreadPool(thmax);
     serverPool = new ThreadPool(serverAddresses.size());
-    while (running)
-    {
-        sockaddr_in client_addr = {0};
-        socklen_t client_addr_size = sizeof(client_addr);
-        int client_sock = accept(sock, (sockaddr *)&client_addr, &client_addr_size);
 
-        if (client_sock == -1)
-        {
-            if (debug)
-                cerr << "Error accepting client connection" << endl;
-            continue;
-        }
-        getpeername(sock, (struct sockaddr *)&client_addr, &client_addr_size);
+    // Start server to listen on base port
+    thread basePortThread(startServer, bbport, "client");
 
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-        int client_port = ntohs(client_addr.sin_port);
+    // Start server to listen on sync port
+    thread syncPortThread(startServer, syncport, "server");
 
-        bool isServer = false;
-        if (syncport == client_port)
-            isServer = findServerIp(client_ip);
-        if (debug)
-            cout << "Connected to client with IP address: " << client_ip << " with port: " << client_port << endl;
+    // Join threads to the main thread to keep the program running
+    basePortThread.join();
+    syncPortThread.join();
 
-        clientData *pclient = new clientData;
-        pclient->isServer = isServer;
-        pclient->socket = client_sock;
-        if (isServer)
-            serverPool->enqueue([pclient]
-                                { handle_server(pclient); });
-        else
-            clientPool->enqueue([pclient]
-                                { handle_client(pclient); });
-    }
-
-    close(sock);
     return 0;
 }
