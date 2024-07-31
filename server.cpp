@@ -382,7 +382,8 @@ bool syncWithServers(string message, string command)
     {
         close(sockets[i]);
     }
-
+    if (syncError)
+        return false;
     return true;
 }
 
