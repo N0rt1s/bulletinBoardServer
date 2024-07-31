@@ -868,9 +868,9 @@ void signalHandler(int signum)
     {
         serverPool->shutdown(); // Custom function to stop the thread pool
     }
-    if (signum == SIGUSR1)
+    if (signum == SIGHUP)
     {
-        printf("Received SIGUSR1, restarting program...\n");
+        addLog("Received SIGHUP, restarting program...\n");
         // Restart the program by using exec
         execl("./a.out", "./a.out", NULL);
         // If execl fails
