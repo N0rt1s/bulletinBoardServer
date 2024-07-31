@@ -364,7 +364,8 @@ bool syncWithServers(string message)
     {
         close(sockets[i]);
     }
-
+    if (syncError)
+        return false;
     return true;
 }
 
