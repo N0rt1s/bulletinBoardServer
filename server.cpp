@@ -619,6 +619,9 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
     else if (command == "QUIT" || command == "\377\364\377\375\006")
     {
         // delete user;
+
+        string message = "BYE Thank you for visiting our bulletin board.\n";
+        send(client_sock, message.c_str(), message.length(), 0);
         if (debug)
             addLog("Client " + to_string(client_sock) + " disconnected.");
         close(client_sock);
