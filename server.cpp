@@ -321,9 +321,9 @@ bool syncWithServers(string message, string command)
                 addLog("Unable to create socket for server " + serverAddress);
             return false;
         }
-        string po = serverAddress.substr(serverAddress.find(",") + 1);
-        int port = stoi(serverAddress.substr(serverAddress.find(",") + 1));
-        string address = serverAddress.substr(0, serverAddress.find(","));
+        string po = serverAddress.substr(serverAddress.find(":") + 1);
+        int port = stoi(serverAddress.substr(serverAddress.find(":") + 1));
+        string address = serverAddress.substr(0, serverAddress.find(":"));
         sockaddr_in addr = {0};
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port); // Assume same port for simplicity, modify if needed
