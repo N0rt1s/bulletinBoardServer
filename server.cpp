@@ -769,17 +769,6 @@ void *handle_client(void *args)
 
         if (bytes_received > 0)
         {
-            string rek = buffer;
-            cout << rek;
-            if (rek == "\377\364\377\375\006\062\r\n")
-            {
-                // delete user;
-                string message = "BYE Thank you for visiting our bulletin board.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
-                if (debug)
-                    addLog("Client " + to_string(client_sock) + " disconnected.");
-                close(client_sock);
-            }
             string filtered = filterNonPrintable(buffer);
             char *filteredbuffer = new char[filtered.size() + 1];
             strcpy(filteredbuffer, filtered.c_str());
