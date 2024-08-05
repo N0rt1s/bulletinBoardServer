@@ -324,6 +324,7 @@ bool syncWithServers(string message, string command)
         string po = serverAddress.substr(serverAddress.find(":") + 1);
         int port = stoi(serverAddress.substr(serverAddress.find(":") + 1));
         string address = serverAddress.substr(0, serverAddress.find(":"));
+        address = address == "localhost" ? "127.0.0.1" : address;
         sockaddr_in addr = {0};
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port); // Assume same port for simplicity, modify if needed
