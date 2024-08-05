@@ -758,11 +758,13 @@ void *handle_client(void *args)
     string welcomMessage = "Connection establish succesfully! \n" + helpMessage;
     send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
     const size_t bufferSize = 1024 * 1024;
-    char *buffer = new char[bufferSize];
+    char buffer[bufferSize];
+    // char *buffer = new char[bufferSize];
     bulletinBoard *user = new bulletinBoard();
     while (true)
     {
         // char buffer[1024];
+        memset(buffer, 0, bufferSize);
         int bytes_received = recv(client_sock, buffer, bufferSize - 1, 0);
 
         if (bytes_received > 0)
@@ -810,7 +812,7 @@ void *handle_client(void *args)
             break;
         }
     }
-    delete buffer;
+    // delete buffer;
     delete user;
     return nullptr;
 }
@@ -825,11 +827,11 @@ void *handle_server(void *args)
     string welcomMessage = "Connection establish succesfully! \n";
     send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
     const size_t bufferSize = 1024 * 1024;
-    char *buffer = new char[bufferSize];
+    char buffer[bufferSize];
     pthread_rwlock_wrlock(&rwlock);
     while (true)
     {
-        // char buffer[1024];
+        memset(buffer, 0, bufferSize);
         int bytes_received = recv(client_sock, buffer, bufferSize - 1, 0);
 
         if (bytes_received > 0)
@@ -861,7 +863,7 @@ void *handle_server(void *args)
             break;
         }
     }
-    delete[] buffer;
+    // delete[] buffer;
     pthread_rwlock_unlock(&rwlock);
     return nullptr;
 }
