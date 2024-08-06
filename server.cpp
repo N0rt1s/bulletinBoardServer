@@ -385,6 +385,7 @@ bool syncWithServers(string message, string command)
         addLog("commit phase done \nsending message to servers");
 
     std::vector<int> sentSockets;
+    addLog("Sending message " + message + "to servers.");
     for (size_t i = 0; i < serverAddresses.size(); i++)
     {
 
@@ -424,6 +425,7 @@ bool syncWithServers(string message, string command)
             pair<string, string> message1 = bulletinBoard::readMessage(data.first, data.second, config["BBFILE"]);
             message = message.substr(0, message.find(',')) + "," + message1.first + ",\"" + message1.second + "\"";
         }
+        addLog("Sending rollback message " + message + "to servers.");
         for (const int &sock : sentSockets)
         {
             send(sock, message.c_str(), message.length(), 0);
@@ -471,44 +473,44 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
     else if (command == "READ")
     {
         pthread_rwlock_rdlock(&rwlock);
-        if (arg1 != "" && data.size() == 2)
+        // if (arg1 != "" && data.size() == 2)
+        // {
+        try
         {
-            try
-            {
-                if (debug)
-                    addLog("CLient " + to_string(client_sock) + ": Beginning read operation.");
+            if (debug)
+                addLog("CLient " + to_string(client_sock) + ": Beginning read operation.");
 
-                int messageId = stoi(arg1);
-                if (!indexes1.empty() && indexes1.find(messageId) != indexes1.end())
-                {
-                    pair<int, int> data = indexes1[messageId];
-                    pair<string, string> message1 = bulletinBoard::readMessage(data.first, data.second, config["BBFILE"]);
-                    if (delay)
-                        sleep(3);
-                    string message = "MESSAGE " + to_string(messageId) + " " + message1.first + " || " + message1.second + "\n";
-                    if (debug)
-                        addLog("MESSAGE " + to_string(messageId) + " found.");
-                    send(client_sock, message.c_str(), message.length(), 0);
-                }
-                else
-                {
-                    string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
-                    if (debug)
-                        addLog(message);
-                    send(client_sock, message.c_str(), message.length(), 0);
-                }
-            }
-            catch (exception e)
+            int messageId = stoi(arg1);
+            if (!indexes1.empty() && indexes1.find(messageId) != indexes1.end())
             {
-                string message = "UNKNOWN " + arg1 + " message not found.\n";
+                pair<int, int> data = indexes1[messageId];
+                pair<string, string> message1 = bulletinBoard::readMessage(data.first, data.second, config["BBFILE"]);
+                if (delay)
+                    sleep(3);
+                string message = "MESSAGE " + to_string(messageId) + " " + message1.first + "/" + message1.second + "\n";
+                if (debug)
+                    addLog("MESSAGE " + to_string(messageId) + " found.");
+                send(client_sock, message.c_str(), message.length(), 0);
+            }
+            else
+            {
+                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                if (debug)
+                    addLog(message);
                 send(client_sock, message.c_str(), message.length(), 0);
             }
         }
-        else
+        catch (exception e)
         {
-            string message = "ERROR READ command takes only 1 positional arguments.\n";
+            string message = "UNKNOWN " + arg1 + " message not found.\n";
             send(client_sock, message.c_str(), message.length(), 0);
         }
+        // }
+        // else
+        // {
+        //     string message = "ERROR READ command takes only 1 positional arguments.\n";
+        //     send(client_sock, message.c_str(), message.length(), 0);
+        // }
         pthread_rwlock_unlock(&rwlock);
     }
     else if (command == "WRITE")
@@ -540,7 +542,7 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
             }
             else
             {
-                string messageResponse = "ERROR syncing servers.\n";
+                string messageResponse = "ERROR WRITE Unable to sync servers.\n";
                 if (debug)
                     addLog(messageResponse);
                 send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
@@ -592,7 +594,7 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
                     }
                     else
                     {
-                        string response = "ERROR syncing servers.\n";
+                        string response = "ERROR Replace Unable to sync servers.\n";
                         if (debug)
                             addLog(response);
                         send(client_sock, response.c_str(), response.length(), 0);
@@ -826,6 +828,8 @@ void *handle_server(void *args)
         if (bytes_received > 0)
 
         {
+            string aa = buffer;
+            addLog("Recieved command " + aa + " from server");
             buffer[bytes_received] = '\0'; // Null-terminate the received data
             vector<string> bufferArray = serverBufferSplit(buffer);
             if (bufferArray.size() > 0 && bufferArray.size() <= 3)
