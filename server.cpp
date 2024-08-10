@@ -664,7 +664,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
             createFile.close();
         }
         int id = indexes1.size() + 1;
-        string message = to_string(id) + "," + arg1 + ",\"" + arg2 + "\"\n";
+        string message = to_string(id) + "/" + arg1 + "/\"" + arg2 + "\"\n";
         outfile.open(filename, ios_base::app);
         outfile << message;
         outfile.close();
@@ -684,7 +684,7 @@ void handle_server_commands(vector<string> buffer, int client_sock)
         int messageId = stoi(arg1);
         int startPos = indexes1[messageId].first;
         int messageLength = indexes1[messageId].second;
-        string message = to_string(messageId) + "," + arg2 + ",\"" + arg3 + "\"\n";
+        string message = to_string(messageId) + "/" + arg2 + "/\"" + arg3 + "\"\n";
         addLog(message);
         fstream file(filename, ios::in);
 
