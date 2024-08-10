@@ -45,6 +45,7 @@ unordered_map<string, string> config;
 regex pattern("[a-zA-Z][a-zA-Z0-9]*");
 unordered_map<int, pair<int, int>> indexes1;
 vector<string> serverAddresses;
+vector<int> allsockets;
 pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
 mutex logMutex;
 
@@ -147,7 +148,7 @@ void addLog(string message)
     }
     else
     {
-        std::cout << output << endl;
+        std::cout << output;
     }
 }
 
@@ -249,7 +250,7 @@ vector<string> bufferSplit(const char *command)
     if (!tempbuffer.empty())
     {
         int splitIndex = tempbuffer.find("/");
-        if (splitIndex != -1)
+        if (splitIndex != -1 && bufferArray[0] != "WRITE")
         {
             bufferArray.push_back(tempbuffer.substr(0, splitIndex));
             bufferArray.push_back(tempbuffer.substr(splitIndex + 1));
@@ -448,28 +449,21 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
     string arg2 = data.size() > 2 ? data[2] : "";
     if (command == "USER")
     {
-        if (arg1 != "" && data.size() == 2)
+        if (regex_match(arg1, pattern))
         {
-            if (regex_match(arg1, pattern))
-            {
-                user->setName(arg1);
-                if (debug)
-                    addLog("CLient " + to_string(client_sock) + ": Username changed.");
-                string message = "HELLO " + arg1 + " Welcome to bulletin board server.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
-            }
-            else
-            {
-                string message = "ERROR USER name should not contain any special character.\n";
-                send(client_sock, message.c_str(), message.length(), 0);
-            }
+            user->setName(arg1);
+            if (debug)
+                addLog("CLient " + to_string(client_sock) + ": Username changed.");
+            string message = "1.0 HELLO " + arg1 + " Welcome to bulletin board server.\n";
+            send(client_sock, message.c_str(), message.length(), 0);
         }
         else
         {
-            string message = "ERROR USER command takes only 1 positional arguments.\n";
+            string message = "1.2 ERROR USER name should not contain any special character.\n";
             send(client_sock, message.c_str(), message.length(), 0);
         }
     }
+
     else if (command == "READ")
     {
         pthread_rwlock_rdlock(&rwlock);
@@ -487,14 +481,14 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
                 pair<string, string> message1 = bulletinBoard::readMessage(data.first, data.second, config["BBFILE"]);
                 if (delay)
                     sleep(3);
-                string message = "MESSAGE " + to_string(messageId) + " " + message1.first + "/" + message1.second + "\n";
+                string message = "2.0 MESSAGE " + to_string(messageId) + " " + message1.first + "/" + message1.second + "\n";
                 if (debug)
                     addLog("MESSAGE " + to_string(messageId) + " found.");
                 send(client_sock, message.c_str(), message.length(), 0);
             }
             else
             {
-                string message = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                string message = "2.1 UNKNOWN " + to_string(messageId) + " message not found.\n";
                 if (debug)
                     addLog(message);
                 send(client_sock, message.c_str(), message.length(), 0);
@@ -502,7 +496,7 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
         }
         catch (exception e)
         {
-            string message = "UNKNOWN " + arg1 + " message not found.\n";
+            string message = "2.2 ERROR READ " + arg1 + "\n";
             send(client_sock, message.c_str(), message.length(), 0);
         }
         // }
@@ -516,42 +510,34 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
     else if (command == "WRITE")
     {
         pthread_rwlock_wrlock(&rwlock);
-        if (arg1 != "" && data.size() == 2)
+        if (debug)
+            addLog("Client " + to_string(client_sock) + ": Beginning write operation.");
+        int messageId = indexes1.size() + 1;
+        string message = to_string(messageId) + "/" + user->getName() + "/\"" + arg1 + "\"" + "\n";
+        if (syncWithServers(user->getName() + ",\"" + arg1 + "\"", "write"))
         {
-            if (debug)
-                addLog("Client " + to_string(client_sock) + ": Beginning write operation.");
-            int messageId = indexes1.size() + 1;
-            string message = to_string(messageId) + "," + user->getName() + ",\"" + arg1 + "\"" + "\n";
-            if (syncWithServers(user->getName() + ",\"" + arg1 + "\"", "write"))
+            user->writeMessage(message, config["BBFILE"]);
+            long startPos = 0;
+            if (delay)
+                sleep(6);
+            if (!indexes1.empty())
             {
-                user->writeMessage(message, config["BBFILE"]);
-                long startPos = 0;
-                if (delay)
-                    sleep(6);
-                if (!indexes1.empty())
-                {
-                    auto lastEntry = indexes1[indexes1.size()]; // Get the last entry
-                    startPos = lastEntry.first + lastEntry.second;
-                }
+                auto lastEntry = indexes1[indexes1.size()]; // Get the last entry
+                startPos = lastEntry.first + lastEntry.second;
+            }
 
-                indexes1[messageId] = make_pair(startPos, message.length());
-                string messageResponse = "WROTE " + to_string(messageId) + '\n';
-                if (debug)
-                    addLog(messageResponse);
-                send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
-            }
-            else
-            {
-                string messageResponse = "ERROR WRITE Unable to sync servers.\n";
-                if (debug)
-                    addLog(messageResponse);
-                send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
-            }
+            indexes1[messageId] = make_pair(startPos, message.length());
+            string messageResponse = "3.0 WROTE " + to_string(messageId) + '\n';
+            if (debug)
+                addLog(messageResponse);
+            send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
         }
         else
         {
-            string message = "ERROR WRITE command takes only 1 positional arguments.\n";
-            send(client_sock, message.c_str(), message.length(), 0);
+            string messageResponse = "3.2 ERROR WRITE Unable to sync servers.\n";
+            if (debug)
+                addLog(messageResponse);
+            send(client_sock, messageResponse.c_str(), messageResponse.length(), 0);
         }
 
         pthread_rwlock_unlock(&rwlock);
@@ -559,42 +545,32 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
     else if (command == "REPLACE")
     {
         pthread_rwlock_wrlock(&rwlock);
-        if (data.size() == 3)
+        try
         {
-            try
+            int messageId = stoi(arg1);
+            string new_message = arg2;
+            if (indexes1.find(messageId) != indexes1.end())
             {
-                int messageId = stoi(arg1);
-                string new_message = arg2;
-                if (indexes1.find(messageId) != indexes1.end())
+                string message = to_string(messageId) + "/" + user->getName() + "/\"" + new_message + "\"" + "\n";
+                if (syncWithServers(to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"", "replace"))
                 {
-                    string message = to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"" + "\n";
-                    if (syncWithServers(to_string(messageId) + "," + user->getName() + ",\"" + new_message + "\"", "replace"))
+                    int startpos = indexes1[messageId].first;
+                    int messageLength = indexes1[messageId].second;
+                    bool replaced = user->replaceMessage(startpos, messageLength, message, config["BBFILE"]);
+                    if (replaced)
                     {
-                        int startpos = indexes1[messageId].first;
-                        int messageLength = indexes1[messageId].second;
-                        bool replaced = user->replaceMessage(startpos, messageLength, message, config["BBFILE"]);
-                        if (replaced)
-                        {
-                            updateIndexes(messageId, messageLength, message.length());
-                            indexes1[messageId] = make_pair(startpos, message.length());
-                            if (delay)
-                                sleep(6);
-                            string response = "WROTE " + to_string(messageId) + '\n';
-                            if (debug)
-                                addLog(response);
-                            send(client_sock, response.c_str(), response.length(), 0);
-                        }
-                        else
-                        {
-                            string response = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
-                            if (debug)
-                                addLog(response);
-                            send(client_sock, response.c_str(), response.length(), 0);
-                        }
+                        updateIndexes(messageId, messageLength, message.length());
+                        indexes1[messageId] = make_pair(startpos, message.length());
+                        if (delay)
+                            sleep(6);
+                        string response = "WROTE " + to_string(messageId) + '\n';
+                        if (debug)
+                            addLog(response);
+                        send(client_sock, response.c_str(), response.length(), 0);
                     }
                     else
                     {
-                        string response = "ERROR Replace Unable to sync servers.\n";
+                        string response = "ERROR REPLACE " + to_string(messageId) + " some error occured.\n";
                         if (debug)
                             addLog(response);
                         send(client_sock, response.c_str(), response.length(), 0);
@@ -602,32 +578,34 @@ int handle_commands(vector<string> data, bulletinBoard *user, int client_sock)
                 }
                 else
                 {
-                    string response = "UNKNOWN " + to_string(messageId) + " message not found.\n";
+                    string response = "ERROR Replace Unable to sync servers.\n";
+                    if (debug)
+                        addLog(response);
                     send(client_sock, response.c_str(), response.length(), 0);
                 }
             }
-            catch (const std::exception &e)
+            else
             {
-                string response = "UNKNOWN " + arg1 + " message not found.\n";
+                string response = "3.1 UNKNOWN " + to_string(messageId) + "\n";
                 send(client_sock, response.c_str(), response.length(), 0);
             }
         }
-        else
+        catch (const std::exception &e)
         {
-            string message = "ERROR REPLACE command takes only 2 positional arguments.\n";
-            send(client_sock, message.c_str(), message.length(), 0);
+            string response = "3.1 UNKNOWN " + arg1 + "\n";
+            send(client_sock, response.c_str(), response.length(), 0);
         }
         pthread_rwlock_unlock(&rwlock);
     }
     else if (command == "QUIT" || command == "\377\364\377\375\006")
     {
-        // delete user;
 
-        string message = "BYE Thank you for visiting our bulletin board.\n";
-        send(client_sock, message.c_str(), message.length(), 0);
         if (debug)
             addLog("Client " + to_string(client_sock) + " disconnected.");
-        close(client_sock);
+        string byeMessage = "4.0 BYE Thank you for visiting our bulletin board.\n";
+        send(client_sock, byeMessage.c_str(), byeMessage.length(), 0);
+        shutdown(client_sock, SHUT_RDWR);
+        // close(client_sock);
     }
     else
     {
@@ -757,7 +735,7 @@ void *handle_client(void *args)
         "WRITE   <message>               Write a message to bulletin board\n"
         "REPLACE <messageId>/<message>   Replace a message with a new one\n"
         "QUIT                              Quit from the server\n";
-    string welcomMessage = "Connection establish succesfully! \n" + helpMessage;
+    string welcomMessage = "0.0 greeting Connection establish succesfully! \n" + helpMessage;
     send(client_sock, welcomMessage.c_str(), welcomMessage.length(), 0);
     const size_t bufferSize = 1024 * 1024;
     char buffer[bufferSize];
@@ -793,6 +771,9 @@ void *handle_client(void *args)
             // Connection was closed by the client
             if (debug)
                 addLog("Connection closed by the client");
+            string byeMessage = "4.0 BYE Thank you for visiting our bulletin board.\n";
+            send(client_sock, byeMessage.c_str(), byeMessage.length(), 0);
+            shutdown(client_sock, SHUT_RDWR);
             break;
         }
         else
@@ -804,6 +785,8 @@ void *handle_client(void *args)
         }
     }
     // delete buffer;
+    close(client_sock);
+    allsockets.erase(std::remove(allsockets.begin(), allsockets.end(), client_sock), allsockets.end());
     delete user;
     return nullptr;
 }
@@ -857,13 +840,28 @@ void *handle_server(void *args)
         }
     }
     // delete[] buffer;
+    allsockets.erase(std::remove(allsockets.begin(), allsockets.end(), client_sock), allsockets.end());
+    close(client_sock);
     pthread_rwlock_unlock(&rwlock);
     return nullptr;
 }
 
 void signalHandler(int signum)
 {
+    if (debug)
+        addLog("Shutting and closing down all sockets...\n");
+
+    for (int socket1 : allsockets)
+    {
+        string byeMessage = "4.0 BYE Thank you for visiting our bulletin board.\n";
+        send(socket1, byeMessage.c_str(), byeMessage.length(), 0);
+        shutdown(socket1, SHUT_RDWR);
+        close(socket1);
+    }
+    if (debug)
+        addLog("Closed all sockets.\n");
     running = false;
+
     if (clientPool)
     {
         clientPool->shutdown(); // Custom function to stop the thread pool
@@ -1011,6 +1009,7 @@ void startServer(int port, const std::string &purpose)
         clientData *pclient = new clientData;
         pclient->isServer = 1;
         pclient->socket = client_sock;
+        allsockets.push_back(client_sock);
         if (purpose == "server")
             serverPool->enqueue([pclient]
                                 { handle_server(pclient); });

@@ -49,7 +49,7 @@ pair<string, string> bulletinBoard::readMessage(int pos, int length, string file
         {
             inQuotes = !inQuotes;
         }
-        else if (ch == ',' && !inQuotes)
+        else if (ch == '/' && !inQuotes)
         {
             if (commaCount == 0)
             {
